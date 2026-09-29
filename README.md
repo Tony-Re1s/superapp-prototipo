@@ -19,7 +19,7 @@ cores laranja/azul. Cada tela responde a uma dor levantada na pesquisa de campo
 | Segurança (golpe, celular perdido, verificador de mensagem) | Persona Marisa |
 | Avalie (NPS + nota por módulo + perfil) | Fonte de dados para os OKRs |
 
-Sem biometria (LGPD): a confirmação reforçada usa uma senha fictícia de 4 dígitos.
+Entrada: login fictício (qualquer CPF e senha), um único perfil de cliente. Sem biometria (LGPD): a confirmação reforçada usa uma senha fictícia de 4 dígitos.
 
 ## Rodar no seu PC
 

@@ -13,6 +13,26 @@ import pandas as pd
 HOJE = date(2026, 9, 28)
 
 PERSONAS = {
+    "padrao": {
+        "id": "padrao",
+        "nome": "Ana Lima",
+        "primeiro_nome": "Ana",
+        "idade": 35,
+        "descricao": "Cliente padrão do protótipo.",
+        "agencia": "1234",
+        "conta": "56789-0",
+        "saldo": 4_318.62,
+        "limite_cartao": 6_000.00,
+        "fatura_atual": 1_987.45,
+        "fatura_vencimento": date(2026, 10, 8),
+        "patrimonio_inv": 18_750.00,
+        "pix_padrao_max": 400.00,
+        "prefere_humano": False,
+        "atalhos": ["Pix", "Pagar conta", "Cartão", "Assistente"],
+        "chave_pix": "ana.lima@email.com",
+        "salario": 5_400.00,
+        "tempo_cliente": "9 anos",
+    },
     "marisa": {
         "id": "marisa",
         "nome": "Marisa Andrade",
@@ -68,6 +88,12 @@ CATEGORIAS = {
 }
 
 CONTATOS_PIX = {
+    "padrao": [
+        {"nome": "Carla (irmã)", "chave": "carla.lima@email.com", "banco": "Nubank"},
+        {"nome": "Bruno", "chave": "11 98811-2244", "banco": "Superapp"},
+        {"nome": "Mãe", "chave": "11 97700-5566", "banco": "Caixa"},
+        {"nome": "Dr. Paulo (dentista)", "chave": "22.333.444/0001-55", "banco": "Bradesco"},
+    ],
     "marisa": [
         {"nome": "Ana Andrade (filha)", "chave": "ana.andrade@email.com", "banco": "Nubank"},
         {"nome": "Pedro Andrade (filho)", "chave": "11 97711-2233", "banco": "Superapp"},
@@ -83,6 +109,13 @@ CONTATOS_PIX = {
 }
 
 CONTAS_A_PAGAR = {
+    "padrao": [
+        {"descricao": "Enel Energia", "valor": 218.70, "vencimento": date(2026, 10, 4), "recorrente": True, "status": "aberta"},
+        {"descricao": "Vivo Fibra", "valor": 119.90, "vencimento": date(2026, 9, 26), "recorrente": True, "status": "vencida"},
+        {"descricao": "Condomínio", "valor": 640.00, "vencimento": date(2026, 10, 10), "recorrente": True, "status": "aberta"},
+        {"descricao": "Academia", "valor": 149.90, "vencimento": date(2026, 10, 12), "recorrente": True, "status": "aberta"},
+        {"descricao": "IPVA parcela 3/3", "valor": 412.50, "vencimento": date(2026, 10, 20), "recorrente": False, "status": "aberta"},
+    ],
     "marisa": [
         {"descricao": "Enel Energia", "valor": 312.40, "vencimento": date(2026, 10, 3), "recorrente": True, "status": "aberta"},
         {"descricao": "Sabesp", "valor": 148.90, "vencimento": date(2026, 10, 6), "recorrente": True, "status": "aberta"},
@@ -99,6 +132,12 @@ CONTAS_A_PAGAR = {
 }
 
 INVESTIMENTOS = {
+    "padrao": [
+        {"produto": "CDB Superapp 110% CDI", "tipo": "Renda fixa", "valor": 9_800.00, "rent_12m": 0.1125, "liquidez": "Diária"},
+        {"produto": "Tesouro Selic 2029", "tipo": "Tesouro Direto", "valor": 5_150.00, "rent_12m": 0.108, "liquidez": "D+1"},
+        {"produto": "Poupança", "tipo": "Poupança", "valor": 2_600.00, "rent_12m": 0.067, "liquidez": "Diária"},
+        {"produto": "ETF IVVB11", "tipo": "Renda variável", "valor": 1_200.00, "rent_12m": 0.184, "liquidez": "D+2"},
+    ],
     "marisa": [
         {"produto": "CDB Superapp 110% CDI", "tipo": "Renda fixa", "valor": 22_500.00, "rent_12m": 0.1125, "liquidez": "Diária"},
         {"produto": "Tesouro IPCA+ 2035", "tipo": "Tesouro Direto", "valor": 15_200.00, "rent_12m": 0.098, "liquidez": "D+1"},
@@ -137,9 +176,9 @@ def gerar_extrato(persona_id: str, dias: int = 90) -> pd.DataFrame:
         dia = inicio + timedelta(days=d)
         # salário no dia 5
         if dia.day == 5:
-            linhas.append((dia, "Salário — Prefeitura SP" if persona_id == "marisa" else "Salário — TechCorp",
-                           p["salario"], "Renda", "Crédito"))
-        n = rng.choice([0, 1, 1, 2, 2, 3]) if persona_id == "lucas" else rng.choice([0, 0, 1, 1, 2])
+            empresa = {"marisa": "Prefeitura SP", "lucas": "TechCorp"}.get(persona_id, "Empresa Fictícia Ltda")
+            linhas.append((dia, f"Salário — {empresa}", p["salario"], "Renda", "Crédito"))
+        n = rng.choice([0, 1, 1, 2, 2, 3]) if persona_id != "marisa" else rng.choice([0, 0, 1, 1, 2])
         for _ in range(n):
             cat = rng.choices(cats, weights=[5, 4, 1, 3, 1, 3, 1])[0]
             estab = rng.choice(CATEGORIAS[cat])

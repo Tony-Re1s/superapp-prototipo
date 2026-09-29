@@ -19,13 +19,19 @@ if "persona" not in st.session_state:
     telas.tela_entrada()
     st.stop()
 
-# navegação
+# navegação — o valor do widget é sincronizado com st.session_state.tela ANTES de o widget ser criado,
+# assim tanto o clique na pílula quanto a navegação por código (atalhos, assistente) funcionam.
 opcoes = [f"{telas.ICONES[t]} {t}" for t in telas.TELAS]
-atual = f"{telas.ICONES[st.session_state.tela]} {st.session_state.tela}"
-escolha = st.pills("Navegação", opcoes, default=atual, key=f"nav_{st.session_state.tela}", label_visibility="collapsed")
-if escolha and escolha != atual:
-    telas.ir_para(escolha.split(" ", 1)[1])
-    st.rerun()
+st.session_state["nav"] = f"{telas.ICONES[st.session_state.tela]} {st.session_state.tela}"
+
+
+def _navegar():
+    escolha = st.session_state.get("nav")
+    if escolha:
+        telas.ir_para(escolha.split(" ", 1)[1])
+
+
+st.pills("Navegação", opcoes, key="nav", on_change=_navegar, label_visibility="collapsed")
 
 {
     "Início": telas.tela_inicio,
@@ -49,7 +55,7 @@ with c1:
             telas.ir_para("Avalie")
             st.rerun()
 with c2:
-    if st.button("Trocar perfil", width="stretch"):
+    if st.button("Sair", width="stretch"):
         for k in list(st.session_state.keys()):
             del st.session_state[k]
         st.rerun()

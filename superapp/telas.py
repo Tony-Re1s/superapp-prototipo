@@ -105,26 +105,28 @@ def confirmar_senha(chave: str, texto: str) -> bool:
 def tela_entrada() -> None:
     st.markdown(
         '<div class="sa-topo"><div class="marca">SUPERAPP <span>protótipo</span></div>'
-        '<div class="ola">Bem-vindo(a) ao protótipo do Tech Challenge FIAP — Fase 03</div>'
-        '<div class="conta" style="margin-top:10px">Escolha um perfil para simular o uso do app. '
-        'Depois, avalie na aba ⭐ Avalie.</div></div>',
+        '<div class="ola">Acesse sua conta</div>'
+        '<div class="conta" style="margin-top:10px">Protótipo acadêmico: use qualquer CPF e qualquer senha. '
+        'Explore o app como você faria no seu banco e, no final, avalie na aba ⭐ Avalie.</div></div>',
         unsafe_allow_html=True,
     )
-    st.markdown("#### Com quem você se identifica mais?")
+    with st.form("login"):
+        st.text_input("CPF", placeholder="000.000.000-00", max_chars=14)
+        st.text_input("Senha", type="password", placeholder="••••••", max_chars=12)
+        st.checkbox("Lembrar meu acesso neste aparelho", value=True)
+        entrar = st.form_submit_button("Entrar", type="primary", width="stretch")
+    if entrar:
+        iniciar_estado("padrao")
+        evento("Entrada", "login", {})
+        st.rerun()
     c1, c2 = st.columns(2)
-    for col, pid in ((c1, "marisa"), (c2, "lucas")):
-        p = D.PERSONAS[pid]
-        with col:
-            estilo.card(f"{'👩' if pid == 'marisa' else '👨'} {p['primeiro_nome']}, {p['idade']} anos", p["descricao"])
-            if st.button(f"Entrar como {p['primeiro_nome']}", key=f"entrar_{pid}", type="primary", width="stretch"):
-                iniciar_estado(pid)
-                evento("Entrada", "login", {"persona": pid})
-                st.rerun()
+    c1.button("Esqueci minha senha", width="stretch")
+    c2.button("Abrir conta", width="stretch")
     st.markdown(
         '<div class="sa-card ia"><div class="titulo">Sobre este protótipo</div><div class="sub">'
         "O app simula um banco digital completo (conta, Pix, cartão, pagamentos, investimentos, controle de gastos, "
         "assistente com IA e central de segurança) desenhado a partir das dores levantadas na pesquisa de campo "
-        "<i>“Você e seu banco”</i> (n=56). Todos os dados financeiros são fictícios.</div></div>",
+        "<i>“Você e seu banco”</i> (n=56). Todos os dados financeiros são fictícios; nenhum dado seu é lido.</div></div>",
         unsafe_allow_html=True,
     )
     estilo.rodape()
@@ -141,7 +143,7 @@ def tela_inicio() -> None:
             ss.mostrar_saldo = not ss.mostrar_saldo
             st.rerun()
     with c2:
-        st.caption("Atalhos priorizados pelo seu padrão de uso" + (" — perfil segurança" if p["prefere_humano"] else " — perfil autosserviço"))
+        st.caption("Atalhos priorizados pelo seu padrão de uso")
 
     # atalhos por persona (dor: excesso de telas — 19 menções)
     atalhos = {"Pix": "Pix", "Pagar conta": "Pagar", "Extrato": "Extrato", "Segurança": "Segurança",
