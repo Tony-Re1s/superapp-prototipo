@@ -51,6 +51,11 @@ def iniciar_estado(persona_id: str, nome: str = "") -> None:
     ss.inv_pendente = None
     ss.credito_pendente = None
     ss.boleto_pendente = None
+    ss.agendamentos = []
+    ss.comprovante_pendente = None
+    ss.prefere_humano = False
+    ss.contato_confianca = None
+    ss.cartao_virtual_fixo = None
     ss.tela = "Início"
     ss.telas_visitadas = {"Início"}
     ss.avaliado = False
@@ -115,6 +120,9 @@ def contexto_ia() -> dict:
         "contratos": st.session_state.credito["contratos"],
         "produtos": st.session_state.produtos,
         "nome": st.session_state.nome,
+        "prefere_humano": st.session_state.prefere_humano,
+        "descricoes": sorted(set(st.session_state.extrato["descricao"].tolist())),
+        "contato_confianca": st.session_state.contato_confianca,
     }
 
 
@@ -212,6 +220,10 @@ def tela_entrada() -> None:
 
 
 # ----------------------------------------------------------------------------- cabeçalho, cards e faixa
+def _alternar_pref() -> None:
+    st.session_state.prefere_humano = bool(st.session_state.get("pref_humano"))
+
+
 def _alternar_produto(chave: str) -> None:
     st.session_state.produtos[chave] = bool(st.session_state.get(f"prod_{chave}"))
 
@@ -230,6 +242,10 @@ def cabecalho() -> None:
         with st.popover("👤", width="stretch"):
             st.markdown(f"**{ss.nome}**  \nCliente há {p['tempo_cliente']}")
             st.caption(f"Agência {p['agencia']} · Conta {p['conta']}  \nChave Pix: {p['chave_pix']}")
+            st.markdown("**Atendimento**")
+            ss["pref_humano"] = ss.prefere_humano
+            st.toggle("Prefiro falar com uma pessoa quando algo foge do normal", key="pref_humano", on_change=_alternar_pref,
+                      help="Liga a fila prioritária de atendimento humano e faz a Lia oferecer uma pessoa mais cedo.")
             st.markdown("**Meus produtos**")
             st.caption("Conta corrente · sempre ativa")
             ativos = sum(1 for v in ss.produtos.values() if v)
@@ -347,9 +363,12 @@ def tela_pix() -> None:
             st.text_input("Mensagem (opcional)", placeholder="Ex.: almoço de domingo")
             fora_padrao = valor > p["pix_padrao_max"]
             if fora_padrao and valor > 0:
+                cc = ss.contato_confianca
+                aviso = (f" {cc['nome']} ({cc['relacao']}), seu contato de confiança, será avisado(a) e pode ajudar a confirmar."
+                         if cc else " Você pode cadastrar um contato de confiança em Segurança para ser avisado nessas horas.")
                 st.markdown(f'<div class="sa-card alerta"><div class="titulo">🛡️ Operação fora do seu padrão</div>'
                             f'<div class="sub">Você costuma enviar até {D.brl(p["pix_padrao_max"])}. Por segurança, este Pix '
-                            f'pedirá confirmação reforçada.</div></div>', unsafe_allow_html=True)
+                            f'pedirá confirmação reforçada.{aviso}</div></div>', unsafe_allow_html=True)
             if valor > ss.saldo:
                 st.error("Saldo insuficiente para este Pix.")
             elif valor > 0:
@@ -507,7 +526,7 @@ def tela_cartao() -> None:
     ss = st.session_state
     p = persona()
     st.markdown("### 💳 Cartão de crédito")
-    fat = 0.0 if ss.fatura_paga else p["fatura_atual"]
+    fat = fatura_total()
     disp = p["limite_cartao"] - fat
     st.markdown(
         f'<div class="sa-topo" style="background:linear-gradient(135deg,{estilo.AZUL} 0%,{estilo.AZUL_ESCURO} 100%);'
@@ -515,40 +534,24 @@ def tela_cartao() -> None:
         f'{"BLOQUEADO" if ss.cartao_bloqueado else "Platinum"}</span></div>'
         f'<div class="conta" style="margin-top:22px;font-size:1.05rem;letter-spacing:.15em">•••• •••• •••• 4417</div>'
         f'<div class="conta">{ss.nome.upper()} · VAL 09/31</div>'
-        f'<div class="saldo-rotulo">Fatura atual</div><div class="saldo">{D.brl(fat)}</div>'
-        f'<div class="conta">Vence {D.data_br(p["fatura_vencimento"])} · Limite disponível {D.brl(disp)}</div></div>',
+        f'<div class="saldo-rotulo">Fatura atual</div><div class="saldo">{valor(fat)}</div>'
+        f'<div class="conta">Vence {D.data_br(p["fatura_vencimento"])} · Limite disponível {valor(disp)}</div></div>',
         unsafe_allow_html=True,
     )
-    c1, c2, c3 = st.columns(3)
+    c1, c2 = st.columns(2)
     with c1:
-        if st.button("🔒 Desbloquear" if ss.cartao_bloqueado else "🔒 Bloquear", width="stretch"):
+        if st.button("🔓 Desbloquear" if ss.cartao_bloqueado else "🔒 Bloquear", width="stretch"):
             ss.cartao_bloqueado = not ss.cartao_bloqueado
             evento("Cartão", "bloqueio", {"bloqueado": ss.cartao_bloqueado})
             st.rerun()
     with c2:
-        if st.button("💳 Cartão virtual", width="stretch"):
-            ss.cartao_virtual = f"5312 {uuid.uuid4().int % 10000:04d} {uuid.uuid4().int % 10000:04d} {uuid.uuid4().int % 10000:04d}"
-    with c3:
         if st.button("📈 Ajustar limite", width="stretch"):
             st.toast("Solicitação enviada. Resposta em até 1 dia útil.")
-    if ss.cartao_virtual:
-        estilo.card("Cartão virtual gerado", f"{ss.cartao_virtual} · CVV 731 · válido por 24h para compras online.", "ok")
     if ss.cartao_bloqueado:
         estilo.card("Cartão bloqueado preventivamente", "Compras serão recusadas até você desbloquear. Débito e Pix seguem normais.", "perigo")
 
-    aba1, aba2, aba3 = st.tabs(["Fatura", "Por categoria", "Pagar fatura"])
+    aba1, aba2, aba3, aba4, aba5 = st.tabs(["Fatura atual", "Passadas", "Recentes", "Parcelados", "Virtuais"])
     with aba1:
-        df = ss.fatura.sort_values("data", ascending=False)
-        estilo.linhas([(r.estabelecimento, f"{D.data_br(r.data)} · {r.categoria} · {r.parcela_txt}", D.brl(r.valor), False)
-                       for r in df.head(12).itertuples()])
-        st.caption(f"{len(df)} lançamentos na fatura. Fechamento em {D.data_br(p['fatura_vencimento'] - timedelta(days=7))}.")
-    with aba2:
-        g = ss.fatura.groupby("categoria")["valor"].sum().sort_values(ascending=False)
-        st.bar_chart(g, color=estilo.LARANJA, horizontal=True, height=260)
-        top = g.index[0]
-        estilo.card("✨ Leitura da IA", f"{top} representa {g.iloc[0] / g.sum():.0%} da fatura. "
-                    f"Em relação ao mês passado, sua fatura está {'12% maior' if ss.persona == 'lucas' else '4% menor'}.", "ia")
-    with aba3:
         if ss.fatura_paga:
             estilo.card("Fatura paga ✅", "Nada pendente no cartão. Limite totalmente disponível.", "ok")
         else:
@@ -563,94 +566,269 @@ def tela_cartao() -> None:
                 evento("Cartão", "pagar_fatura", {"valor": valor_pg})
                 st.success(f"Pagamento de {D.brl(valor_pg)} realizado.")
                 st.rerun()
+        g = ss.fatura.groupby("categoria")["valor"].sum().sort_values(ascending=False)
+        st.markdown("**Por categoria**")
+        st.bar_chart(g, color=estilo.LARANJA, horizontal=True, height=220)
+        estilo.card("✨ Leitura da IA", f"{g.index[0]} representa {g.iloc[0] / g.sum():.0%} da fatura. "
+                    "Em relação ao mês passado, sua fatura está 6% maior.", "ia")
+        st.markdown("**Lançamentos**")
+        df = ss.fatura.sort_values("data", ascending=False)
+        estilo.linhas([(r.estabelecimento, f"{D.data_br(r.data)} · {r.categoria} · {r.parcela_txt}", D.brl(r.valor), False)
+                       for r in df.itertuples()])
+    with aba2:
+        for k, (mes, val, status) in enumerate([("Setembro/2026", fat * 0.94, "paga"), ("Agosto/2026", fat * 1.08, "paga"),
+                                                 ("Julho/2026", fat * 0.87, "paga"), ("Junho/2026", fat * 0.99, "paga")]):
+            st.markdown(f'<div class="sa-card"><div class="titulo">{mes} {estilo.pill("paga", "verde")}</div>'
+                        f'<div class="sub">{D.brl(val)} · paga em dia</div></div>', unsafe_allow_html=True)
+            st.download_button("⬇️ PDF", f"Fatura {mes} — {D.brl(val)} — PAGA (fictícia)".encode(), f"fatura_{k}.txt", key=f"fat_{k}")
+    with aba3:
+        st.caption("Compras dos últimos 7 dias, inclusive as que ainda não entraram na fatura.")
+        df = ss.fatura[pd.to_datetime(ss.fatura["data"]) >= pd.Timestamp(D.HOJE - timedelta(days=7))].sort_values("data", ascending=False)
+        if df.empty:
+            st.info("Nenhuma compra nos últimos 7 dias.")
+        estilo.linhas([(r.estabelecimento, f"{D.data_br(r.data)} · {r.categoria}", D.brl(r.valor), False) for r in df.itertuples()])
+    with aba4:
+        df = ss.fatura[ss.fatura["parcelas"] > 1]
+        if df.empty:
+            st.info("Nenhuma compra parcelada.")
+        total_rest = 0.0
+        for r in df.itertuples():
+            rest = r.valor * (r.parcelas - 1)
+            total_rest += rest
+            st.markdown(f'<div class="sa-card"><div class="titulo">{r.estabelecimento} — {r.parcelas}x de {D.brl(r.valor)}</div>'
+                        f'<div class="sub">Parcela 1 de {r.parcelas} nesta fatura · faltam {D.brl(rest)} em {r.parcelas - 1} parcelas</div></div>',
+                        unsafe_allow_html=True)
+            st.progress(1 / r.parcelas)
+        if total_rest:
+            estilo.card("✨ Compromisso futuro", f"Suas parcelas somam {D.brl(total_rest)} nas próximas faturas — "
+                        f"cerca de {D.brl(df['valor'].sum())} por mês.", "ia")
+    with aba5:
+        st.caption("Dois cartões virtuais: um fixo para assinaturas e um temporário para compras únicas.")
+        if not ss.get("cartao_virtual_fixo"):
+            ss.cartao_virtual_fixo = f"5312 {uuid.uuid4().int % 10000:04d} {uuid.uuid4().int % 10000:04d} {uuid.uuid4().int % 10000:04d}"
+        st.markdown(f'<div class="sa-card ia"><div class="titulo">🔁 Virtual fixo (assinaturas)</div>'
+                    f'<div class="sub">{ss.cartao_virtual_fixo} · CVV 218 · VAL 09/31<br>Use em Netflix, Spotify e cobranças recorrentes. '
+                    f'Se vazar, troque o número sem afetar o cartão físico.</div></div>', unsafe_allow_html=True)
+        if st.button("Trocar número do fixo", width="stretch"):
+            ss.cartao_virtual_fixo = f"5312 {uuid.uuid4().int % 10000:04d} {uuid.uuid4().int % 10000:04d} {uuid.uuid4().int % 10000:04d}"
+            st.rerun()
+        if ss.cartao_virtual:
+            estilo.card("⏱️ Virtual temporário", f"{ss.cartao_virtual} · CVV 731 · válido por 24h · uma compra. "
+                        "Depois disso, o número deixa de existir.", "ok")
+            if st.button("Encerrar temporário", width="stretch"):
+                ss.cartao_virtual = None
+                st.rerun()
+        else:
+            if st.button("Criar virtual temporário (24h)", type="primary", width="stretch"):
+                ss.cartao_virtual = f"5312 {uuid.uuid4().int % 10000:04d} {uuid.uuid4().int % 10000:04d} {uuid.uuid4().int % 10000:04d}"
+                st.rerun()
 
 
 # ----------------------------------------------------------------------------- pagamentos
+def _pagar_ou_agendar(chave: str, descricao: str, valor_pg: float, categoria: str, ao_pagar=None) -> None:
+    """Par de botões Pagar agora / Agendar com data."""
+    ss = st.session_state
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Pagar agora", key=f"pg_{chave}", type="primary", width="stretch"):
+            if valor_pg > ss.saldo:
+                st.error("Saldo insuficiente.")
+            else:
+                lancar(f"Pagamento — {descricao}", -valor_pg, categoria)
+                if ao_pagar:
+                    ao_pagar()
+                evento("Pagar", "pago", {"desc": descricao, "valor": valor_pg})
+                st.success(f"{descricao} paga. Comprovante em Extrato → Comprovantes.")
+                st.rerun()
+    with c2:
+        with st.popover("📅 Agendar", width="stretch"):
+            data = st.date_input("Pagar em", value=D.HOJE + timedelta(days=3), min_value=D.HOJE, key=f"dt_{chave}", format="DD/MM/YYYY")
+            if st.button("Confirmar agendamento", key=f"ag_{chave}", type="primary", width="stretch"):
+                ss.agendamentos.append({"descricao": descricao, "valor": valor_pg, "data": data, "categoria": categoria})
+                if ao_pagar:
+                    ao_pagar(agendado=True)
+                evento("Pagar", "agendado", {"desc": descricao, "valor": valor_pg})
+                st.success(f"{descricao} agendada para {D.data_br(data)}.")
+                st.rerun()
+
+
 def tela_pagar() -> None:
     ss = st.session_state
     st.markdown("### 🧾 Pagamentos")
-    aba1, aba2, aba3 = st.tabs(["Contas a pagar", "Pagar boleto", "Agendamentos"])
+    aba1, aba2, aba3 = st.tabs(["Contas a pagar", "Boleto", "Agendamentos"])
     with aba1:
-        pend = [c for c in ss.contas if c["status"] != "paga"]
-        pagas = [c for c in ss.contas if c["status"] == "paga"]
+        pend = [c for c in ss.contas if c["status"] not in ("paga", "agendada")]
         if not pend:
             estilo.card("Tudo em dia ✅", "Nenhuma conta pendente.", "ok")
         for c in pend:
             atras = c["status"] == "vencida"
             selo = estilo.pill("VENCIDA", "vermelho") if atras else estilo.pill(f"vence {D.data_br(c['vencimento'])}", "laranja")
             rec = estilo.pill("recorrente", "azul") if c["recorrente"] else ""
-            st.markdown(f'<div class="sa-card {"perigo" if atras else ""}"><div class="titulo">{c["descricao"]} — {D.brl(c["valor"])}</div>'
-                        f'<div class="sub">{selo}{rec}</div></div>', unsafe_allow_html=True)
             destaque = ss.pagamento_pendente == c["descricao"]
-            if st.button(f"Pagar {c['descricao']}", key=f"pg_{c['descricao']}", type="primary" if destaque else "secondary", width="stretch"):
-                if c["valor"] > ss.saldo:
-                    st.error("Saldo insuficiente.")
-                else:
-                    c["status"] = "paga"
-                    lancar(f"Pagamento — {c['descricao']}", -c["valor"], "Moradia")
-                    ss.pagamento_pendente = None
-                    evento("Pagar", "conta_paga", {"conta": c["descricao"], "valor": c["valor"]})
-                    st.success(f"{c['descricao']} paga. Comprovante no extrato.")
-                    st.rerun()
-        if pagas:
-            st.caption("Pagas nesta sessão: " + ", ".join(c["descricao"] for c in pagas))
-        st.toggle("Débito automático para contas recorrentes", value=False, help="A IA identifica contas que se repetem todo mês e sugere colocar em débito automático.")
+            st.markdown(f'<div class="sa-card {"perigo" if atras else ("ia" if destaque else "")}"><div class="titulo">{c["descricao"]} — {D.brl(c["valor"])}</div>'
+                        f'<div class="sub">{selo}{rec}{" · preparado pela Lia" if destaque else ""}</div></div>', unsafe_allow_html=True)
+
+            def _marcar(agendado=False, c=c):
+                c["status"] = "agendada" if agendado else "paga"
+                ss.pagamento_pendente = None
+
+            _pagar_ou_agendar(_norm_txt(c["descricao"]).replace(" ", "_"), c["descricao"], c["valor"], "Moradia", _marcar)
+        st.toggle("Débito automático para contas recorrentes", value=False,
+                  help="A IA identifica contas que se repetem todo mês e sugere colocar em débito automático.")
     with aba2:
-        cod = st.text_input("Código de barras ou linha digitável", value=ss.get("boleto_pendente") or "",
-                            placeholder="Cole ou digite (protótipo aceita qualquer coisa)")
+        modo = st.pills("Como?", ["⌨️ Digitar código", "📷 Ler código de barras"], default="⌨️ Digitar código",
+                        key="boleto_modo", label_visibility="collapsed")
+        cod = ""
+        if modo == "📷 Ler código de barras":
+            foto = st.camera_input("Abrir câmera", label_visibility="collapsed", key="boleto_camera")
+            if foto is not None:
+                cod = _decodificar_qr(foto.getvalue()) or "23793381286000000000300000000400199990000012345"
+                st.caption("Código lido.")
+        else:
+            cod = st.text_input("Código de barras ou linha digitável", value=ss.get("boleto_pendente") or "",
+                                placeholder="Cole ou digite (protótipo aceita qualquer coisa)")
         if cod:
             v = round(37.0 + (sum(ord(ch) for ch in cod) % 900), 2)
-            estilo.card("Boleto identificado", f"Beneficiário: Cia. Fictícia de Serviços · Valor {D.brl(v)} · Vencimento {D.data_br(D.HOJE + timedelta(days=3))}")
+            venc = D.HOJE + timedelta(days=3)
+            estilo.card("Boleto identificado", f"Beneficiário: Cia. Fictícia de Serviços · Valor {D.brl(v)} · Vencimento {D.data_br(venc)}")
             estilo.card("🛡️ Verificação antifraude", "Beneficiário conhecido, valor coerente com seu histórico. Nenhum sinal de boleto falso.", "ok")
-            if st.button("Pagar boleto", type="primary", width="stretch"):
-                if v > ss.saldo:
-                    st.error("Saldo insuficiente.")
-                else:
-                    lancar("Boleto — Cia. Fictícia de Serviços", -v, "Compras")
-                    ss.boleto_pendente = None
-                    evento("Pagar", "boleto", {"valor": v})
-                    st.success("Boleto pago.")
+
+            def _limpar(agendado=False):
+                ss.boleto_pendente = None
+
+            _pagar_ou_agendar("boleto", "Boleto Cia. Fictícia de Serviços", v, "Compras", _limpar)
     with aba3:
-        st.date_input("Agendar para", value=D.HOJE + timedelta(days=5), min_value=D.HOJE)
-        st.number_input("Valor (R$)", min_value=0.0, step=10.0, format="%.2f", key="ag_valor")
-        st.text_input("Descrição", key="ag_desc")
-        if st.button("Agendar", width="stretch"):
-            st.toast("Agendamento criado (simulado).")
+        if not ss.agendamentos:
+            st.info("Nenhum pagamento agendado. Agende pelas abas Contas a pagar ou Boleto.")
+        for k, a in enumerate(sorted(ss.agendamentos, key=lambda x: x["data"])):
+            st.markdown(f'<div class="sa-card"><div class="titulo">{a["descricao"]} — {D.brl(a["valor"])}</div>'
+                        f'<div class="sub">{estilo.pill("agendado para " + D.data_br(a["data"]), "azul")} · débito automático na data</div></div>',
+                        unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("Pagar hoje", key=f"agpg_{k}", width="stretch"):
+                    lancar(f"Pagamento — {a['descricao']}", -a["valor"], a["categoria"])
+                    ss.agendamentos.remove(a)
+                    for c in ss.contas:
+                        if c["descricao"] == a["descricao"]:
+                            c["status"] = "paga"
+                    st.rerun()
+            with c2:
+                if st.button("Cancelar", key=f"agcl_{k}", width="stretch"):
+                    ss.agendamentos.remove(a)
+                    for c in ss.contas:
+                        if c["descricao"] == a["descricao"]:
+                            c["status"] = "aberta"
+                    st.rerun()
 
 
 # ----------------------------------------------------------------------------- extrato
+def _extrato_filtrado() -> tuple[pd.DataFrame, date, date]:
+    ss = st.session_state
+    periodo = st.pills("Período", ["Mês atual", "7 dias", "30 dias", "90 dias", "De / até"], default=ss.get("ext_periodo", "Mês atual"),
+                       key="ext_periodo_sel", label_visibility="collapsed")
+    periodo = periodo or "Mês atual"
+    ss.ext_periodo = periodo
+    if periodo == "Mês atual":
+        ini, fim = D.HOJE.replace(day=1), D.HOJE
+    elif periodo == "De / até":
+        c1, c2 = st.columns(2)
+        ini = c1.date_input("De", value=D.HOJE - timedelta(days=30), max_value=D.HOJE, format="DD/MM/YYYY", key="ext_de")
+        fim = c2.date_input("Até", value=D.HOJE, max_value=D.HOJE, format="DD/MM/YYYY", key="ext_ate")
+    else:
+        ini, fim = D.HOJE - timedelta(days=int(periodo.split()[0])), D.HOJE
+    df = ss.extrato.copy()
+    df["data"] = pd.to_datetime(df["data"])
+    df = df[(df["data"] >= pd.Timestamp(ini)) & (df["data"] <= pd.Timestamp(fim))]
+    return df, ini, fim
+
+
 def tela_extrato() -> None:
     ss = st.session_state
     st.markdown("### 📄 Extrato da conta")
-    c1, c2 = st.columns(2)
-    with c1:
-        periodo = st.selectbox("Período", ["7 dias", "15 dias", "30 dias", "60 dias", "90 dias"], index=2)
-    with c2:
-        tipo = st.selectbox("Tipo", ["Tudo", "Entradas", "Saídas", "Pix", "Boleto", "Débito"])
-    dias = int(periodo.split()[0])
+    if ss.get("comprovante_pendente"):
+        st.info("A Lia abriu seus comprovantes — veja a aba **Comprovantes**.")
+    aba1, aba2 = st.tabs(["Movimentações", "Comprovantes"])
+    with aba1:
+        df, ini, fim = _extrato_filtrado()
+        ent, sai = df[df["valor"] > 0]["valor"].sum(), df[df["valor"] < 0]["valor"].sum()
+        # saldo inicial = saldo antes do primeiro lançamento do período
+        antes = ss.extrato.copy()
+        antes["data"] = pd.to_datetime(antes["data"])
+        antes = antes[antes["data"] < pd.Timestamp(ini)]
+        saldo_ini = float(antes.iloc[-1]["saldo"]) if not antes.empty else float(df.iloc[0]["saldo"] - df.iloc[0]["valor"]) if not df.empty else ss.saldo
+        saldo_fim = saldo_ini + ent + sai
+
+        # os três cartões são filtros
+        filtro = st.pills("Filtro", ["Tudo", f"⬆️ Entradas {valor(ent)}", f"⬇️ Saídas {valor(sai)}", "📊 Saldo por dia"],
+                          default="Tudo", key="ext_filtro", label_visibility="collapsed") or "Tudo"
+
+        st.markdown("**Fluxo de caixa do período** — " + f"{D.data_br(ini)} a {D.data_br(fim)}")
+        st.markdown(
+            f'<div class="sa-card"><div class="sa-linha"><div class="desc">Saldo inicial</div><div class="val">{valor(saldo_ini)}</div></div>'
+            f'<div class="sa-linha"><div class="desc">(+) Entradas</div><div class="val pos">{valor(ent)}</div></div>'
+            f'<div class="sa-linha"><div class="desc">(−) Saídas</div><div class="val">{valor(abs(sai))}</div></div>'
+            f'<div class="sa-linha"><div class="desc"><b>(=) Resultado</b></div><div class="val {"pos" if ent + sai >= 0 else ""}"><b>{valor(ent + sai)}</b></div></div>'
+            f'<div class="sa-linha"><div class="desc"><b>Saldo final</b></div><div class="val"><b>{valor(saldo_fim)}</b></div></div></div>',
+            unsafe_allow_html=True)
+
+        if filtro.startswith("📊"):
+            if not df.empty:
+                por_dia = df.groupby(df["data"].dt.date)["saldo"].last()
+                st.line_chart(por_dia, color=estilo.AZUL, height=200)
+                estilo.linhas([(D.data_br(d), "saldo ao fim do dia", valor(v), True) for d, v in por_dia.sort_index(ascending=False).items()][:31])
+        else:
+            if filtro.startswith("⬆️"):
+                df = df[df["valor"] > 0]
+            elif filtro.startswith("⬇️"):
+                df = df[df["valor"] < 0]
+            busca = st.text_input("Buscar", placeholder="Ex.: iFood, Pix, energia", key="ext_busca", label_visibility="collapsed")
+            if busca:
+                df = df[df["descricao"].str.contains(busca, case=False)]
+            df = df.sort_values("data", ascending=False)
+            if df.empty:
+                st.info("Nada nesse filtro.")
+            estilo.linhas([(r.descricao, f"{D.data_br(r.data)} · {r.categoria}", valor(r.valor), r.valor > 0) for r in df.head(60).itertuples()])
+        st.download_button("⬇️ Baixar extrato (CSV)", df.to_csv(index=False).encode("utf-8"), "extrato.csv", "text/csv", width="stretch")
+    with aba2:
+        tela_comprovantes()
+
+
+def _comprovante_txt(r) -> str:
+    return (f"SUPERAPP — COMPROVANTE (fictício)\n{'-' * 40}\nOperação: {r.descricao}\nData: {D.data_br(r.data)}\n"
+            f"Valor: {D.brl(r.valor)}\nCategoria: {r.categoria}\nAutenticação: {uuid.uuid5(uuid.NAMESPACE_DNS, f'{r.descricao}{r.data}{r.valor}').hex[:20].upper()}\n")
+
+
+def tela_comprovantes() -> None:
+    ss = st.session_state
+    pend = ss.get("comprovante_pendente") or {}
+    st.caption("Todo Pix, pagamento e transferência gera um comprovante aqui. Busque por valor ou por nome.")
+    busca = st.text_input("Buscar comprovante", value=pend.get("busca", ""), placeholder="Ex.: 50, Mãe, Enel, boleto", key="cmp_busca")
     df = ss.extrato.copy()
-    df["data"] = pd.to_datetime(df["data"])
-    df = df[df["data"] >= pd.Timestamp(D.HOJE - timedelta(days=dias))]
-    if tipo == "Entradas":
-        df = df[df["valor"] > 0]
-    elif tipo == "Saídas":
-        df = df[df["valor"] < 0]
-    elif tipo != "Tudo":
-        df = df[df["descricao"].str.startswith(tipo)]
-    busca = st.text_input("Buscar no extrato", placeholder="Ex.: iFood, Pix, energia")
-    if busca:
-        df = df[df["descricao"].str.contains(busca, case=False)]
-    ent, sai = df[df["valor"] > 0]["valor"].sum(), df[df["valor"] < 0]["valor"].sum()
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Entradas", D.brl(ent))
-    m2.metric("Saídas", D.brl(sai))
-    m3.metric("Resultado", D.brl(ent + sai))
-    if not df.empty:
-        st.line_chart(df.set_index("data")["saldo"], color=estilo.AZUL, height=180)
+    df = df[df["descricao"].str.contains("Pix|Pagamento|Boleto|Aplicação|Resgate|Crédito|Antecipação", case=False, regex=True)]
+    if busca.strip():
+        b = busca.strip()
+        v = None
+        try:
+            v = float(b.replace("R$", "").replace(".", "").replace(",", "."))
+        except ValueError:
+            pass
+        if v is not None:
+            df = df[(df["valor"].abs() - v).abs() < 0.005]
+        else:
+            df = df[df["descricao"].str.contains(b, case=False)]
     df = df.sort_values("data", ascending=False)
-    estilo.linhas([(r.descricao, f"{D.data_br(r.data)} · {r.categoria} · saldo {D.brl(r.saldo)}", D.brl(r.valor), r.valor > 0)
-                   for r in df.head(40).itertuples()])
-    st.download_button("⬇️ Baixar extrato (CSV)", df.to_csv(index=False).encode("utf-8"), "extrato.csv", "text/csv", width="stretch")
+    if df.empty:
+        st.info("Nenhum comprovante encontrado.")
+    if pend:
+        ss.comprovante_pendente = None
+    for k, r in enumerate(df.head(20).itertuples()):
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.markdown(f'<div class="sa-card"><div class="titulo">{r.descricao}</div><div class="sub">{D.data_br(r.data)} · {D.brl(r.valor)}</div></div>',
+                        unsafe_allow_html=True)
+        with c2:
+            st.download_button("📄 Baixar", _comprovante_txt(r).encode("utf-8"), f"comprovante_{k}.txt", key=f"cmp_{k}", width="stretch")
 
 
 # ----------------------------------------------------------------------------- investimentos
@@ -837,9 +1015,13 @@ def _executar_acao(acao: dict) -> str | None:
     if t == "ativar_produto":
         ativar_produto(str(acao.get("produto") or ""))
         return None
+    if t == "comprovante":
+        ss.comprovante_pendente = {"busca": str(acao.get("busca") or "")}
+        return "Extrato"
     if t == "escalar_humano":
-        ss.fila_humano = {"motivo": acao.get("motivo", "atendimento"), "posicao": 2 if persona()["prefere_humano"] else 5,
-                          "espera": "3 min" if persona()["prefere_humano"] else "8 min"}
+        prioridade = ss.prefere_humano or "segurança" in str(acao.get("motivo", ""))
+        ss.fila_humano = {"motivo": acao.get("motivo", "atendimento"), "posicao": 1 if prioridade else 5,
+                          "espera": "2 min" if prioridade else "8 min"}
         return None
     return None
 
@@ -852,60 +1034,108 @@ def _digitando(texto: str, delay: float = 0.012):
         time.sleep(delay)
 
 
+def _botao_microfone() -> None:
+    """Ditado por voz: usa o reconhecimento do próprio navegador (pt-BR) e escreve na caixa da conversa."""
+    st.iframe("""
+    <div style="font-family:sans-serif;display:flex;align-items:center;gap:10px">
+      <button id="mic" onclick="ouvir()" style="border:1.5px solid #EC7000;background:#FFF6EE;color:#C25C00;border-radius:999px;
+              padding:8px 14px;font-weight:700;cursor:pointer;font-size:0.9rem">🎤 Falar com a Lia</button>
+      <span id="stt" style="font-size:0.8rem;color:#5B6472"></span>
+    </div>
+    <script>
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const st = document.getElementById('stt');
+      if (!SR) { st.textContent = 'Seu navegador não tem ditado por voz — use Chrome ou Safari.'; }
+      function enviar(texto) {
+        try {
+          const doc = window.parent.document;
+          const ta = doc.querySelector('textarea[data-testid="stChatInputTextArea"]');
+          if (!ta) { st.textContent = 'Não achei a caixa de mensagem.'; return; }
+          const setter = Object.getOwnPropertyDescriptor(window.parent.HTMLTextAreaElement.prototype, 'value').set;
+          setter.call(ta, texto);
+          ta.dispatchEvent(new Event('input', { bubbles: true }));
+          setTimeout(() => {
+            const btn = doc.querySelector('button[data-testid="stChatInputSubmitButton"]');
+            if (btn) btn.click();
+          }, 150);
+        } catch (e) { st.textContent = 'Fale e depois toque em enviar.'; }
+      }
+      function ouvir() {
+        if (!SR) return;
+        const r = new SR(); r.lang = 'pt-BR'; r.interimResults = false; r.maxAlternatives = 1;
+        st.textContent = 'Ouvindo… pode falar.'; document.getElementById('mic').textContent = '🔴 Ouvindo';
+        r.onresult = (e) => { const t = e.results[0][0].transcript; st.textContent = '“' + t + '”'; enviar(t); };
+        r.onerror = (e) => { st.textContent = 'Não consegui ouvir (' + e.error + '). Tente de novo.'; };
+        r.onend = () => { document.getElementById('mic').textContent = '🎤 Falar com a Lia'; };
+        r.start();
+      }
+    </script>
+    """, height=48)
+
+
 def tela_assistente() -> None:
     ss = st.session_state
-    p = persona()
     AV = "💬"
     st.markdown(f"### {AV} {ASSISTENTE}")
     modo = "IA generativa" if ia.api_disponivel() else "regras"
     st.caption(f"Assistente do Superapp · online agora · {modo}")
-    if not ss.chat:
-        with st.chat_message("assistant", avatar=AV):
-            st.markdown(f"Oi, {ss.nome}! Eu sou a **{ASSISTENTE}**, assistente do Superapp. Sou uma IA, mas resolvo de verdade: "
-                        "faço Pix, pago contas, mostro sua fatura e seus gastos. E se em algum momento você preferir "
-                        "falar com uma pessoa, é só me dizer que eu chamo alguém da equipe — sem você repetir nada. "
-                        "O que você precisa hoje?")
     sugestoes = ["Qual meu saldo?", "Manda 50 pra " + D.CONTATOS_PIX[ss.persona][0]["nome"].split(" ")[0],
-                 "Quanto está minha fatura?", "Onde gastei mais esse mês?", "Tem conta vencida?", "Bloqueia meu cartão"]
+                 "Quanto está minha fatura?", "Onde gastei mais esse mês?", "Comprovante do último Pix", "Bloqueia meu cartão"]
     esc = st.pills("Sugestões", sugestoes, key="sug_chat", label_visibility="collapsed")
-    for h in ss.chat:
-        with st.chat_message(h["role"], avatar="🧑" if h["role"] == "user" else AV):
-            st.markdown(h["content"])
-    if ss.fila_humano:
-        f = ss.fila_humano
-        st.markdown(f'<div class="sa-card alerta"><div class="titulo">🙋 Rafael, da nossa equipe, vai assumir</div><div class="sub">'
-                    f'Motivo: {f["motivo"]}. Você é o nº {f["posicao"]} da fila prioritária (espera estimada {f["espera"]}). '
-                    f'O Rafael já está lendo esta conversa — você não precisa repetir nada.</div></div>',
-                    unsafe_allow_html=True)
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("📞 Prefiro que me liguem", width="stretch", type="primary"):
-                st.success("Combinado. O Rafael liga em até " + f["espera"] + ".")
-                evento("Assistente", "callback", f)
-        with c2:
-            if st.button(f"Continuar com a {ASSISTENTE}", width="stretch"):
-                ss.fila_humano = None
-                st.rerun()
-    entrada = st.chat_input(f"Fale com a {ASSISTENTE} do seu jeito…")
+
+    conversa = st.container()
+    with conversa:
+        if not ss.chat:
+            with st.chat_message("assistant", avatar=AV):
+                extra = (" Vi que você prefere falar com uma pessoa quando algo foge do normal — pode pedir a qualquer momento "
+                         "que eu passo para o Rafael com prioridade." if ss.prefere_humano else
+                         " E se em algum momento você preferir falar com uma pessoa, é só me dizer que eu chamo alguém da equipe — sem você repetir nada.")
+                st.markdown(f"Oi, {ss.nome}! Eu sou a **{ASSISTENTE}**, assistente do Superapp. Sou uma IA, mas resolvo de verdade: "
+                            "faço Pix, pago contas, mostro sua fatura, gastos e comprovantes." + extra + " O que você precisa hoje?")
+        for h in ss.chat:
+            with st.chat_message(h["role"], avatar="🧑" if h["role"] == "user" else AV):
+                st.markdown(h["content"])
+        if ss.fila_humano:
+            f = ss.fila_humano
+            st.markdown(f'<div class="sa-card alerta"><div class="titulo">🙋 Rafael, da nossa equipe, vai assumir</div><div class="sub">'
+                        f'Motivo: {f["motivo"]}. Você é o nº {f["posicao"]} da fila {"prioritária" if f["posicao"] <= 2 else ""} '
+                        f'(espera estimada {f["espera"]}). O Rafael já está lendo esta conversa — você não precisa repetir nada.</div></div>',
+                        unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("📞 Prefiro que me liguem", width="stretch", type="primary"):
+                    st.success("Combinado. O Rafael liga em até " + f["espera"] + ".")
+                    evento("Assistente", "callback", f)
+            with c2:
+                if st.button(f"Continuar com a {ASSISTENTE}", width="stretch"):
+                    ss.fila_humano = None
+                    st.rerun()
+
+    # caixa de mensagem logo abaixo da conversa (dentro de um container ela deixa de ficar presa ao rodapé)
+    with st.container():
+        entrada = st.chat_input(f"Fale com a {ASSISTENTE} do seu jeito…")
+        _botao_microfone()
+
     msg = entrada or esc
     if msg and msg != ss.get("_ultima_sugestao"):
         if esc and not entrada:
             ss["_ultima_sugestao"] = esc
-        with st.chat_message("user", avatar="🧑"):
-            st.markdown(msg)
-        with st.chat_message("assistant", avatar=AV):
-            espaco = st.empty()
-            espaco.caption(f"{ASSISTENTE} está digitando…")
-            r = ia.responder(msg, ss.chat, contexto_ia())
-            destino = _executar_acao(r.get("acao", {}))
-            tipo = r.get("acao", {}).get("tipo")
-            if tipo == "ativar_produto" and not ss.produtos.get(str(r["acao"].get("produto", ""))):
-                r["resposta"] = (f"Você já tem {MAX_PRODUTOS} produtos na tela inicial, que é o máximo. Se quiser incluir este, "
-                                 "desative outro no seu perfil (ícone 👤) que eu ativo na hora.")
-            if tipo == "cartao_virtual" and ss.cartao_virtual:
-                r["resposta"] += f"\n\n**{ss.cartao_virtual}** · CVV 731 · válido por 24h para compras online."
-            espaco.empty()
-            st.write_stream(_digitando(r["resposta"]))
+        with conversa:
+            with st.chat_message("user", avatar="🧑"):
+                st.markdown(msg)
+            with st.chat_message("assistant", avatar=AV):
+                espaco = st.empty()
+                espaco.caption(f"{ASSISTENTE} está digitando…")
+                r = ia.responder(msg, ss.chat, contexto_ia())
+                destino = _executar_acao(r.get("acao", {}))
+                tipo = r.get("acao", {}).get("tipo")
+                if tipo == "ativar_produto" and not ss.produtos.get(str(r["acao"].get("produto", ""))):
+                    r["resposta"] = (f"Você já tem {MAX_PRODUTOS} produtos na tela inicial, que é o máximo. Se quiser incluir este, "
+                                     "desative outro no seu perfil (ícone 👤) que eu ativo na hora.")
+                if tipo == "cartao_virtual" and ss.cartao_virtual:
+                    r["resposta"] += f"\n\n**{ss.cartao_virtual}** · CVV 731 · válido por 24h para compras online."
+                espaco.empty()
+                st.write_stream(_digitando(r["resposta"]))
         ss.chat.append({"role": "user", "content": msg})
         ss.chat.append({"role": "assistant", "content": r["resposta"]})
         evento("Assistente", "mensagem", {"fonte": r["fonte"], "acao": tipo, "escalar": r["escalar"], "uso": r.get("uso")})
@@ -951,7 +1181,35 @@ def tela_seguranca() -> None:
     st.toggle("Confirmação reforçada em Pix e compras fora do padrão", value=True,
               help="A IA aprende seu padrão de uso e pede senha só quando algo foge dele.")
     st.toggle("Alertas antifraude em linguagem simples", value=True)
-    st.toggle("Contato de confiança avisado em operações incomuns", value=p["prefere_humano"])
+    st.markdown("#### Contato de confiança")
+    st.caption("Alguém que você escolhe para ser avisado quando uma operação sair do seu padrão — e que pode te ajudar a "
+               "confirmar se é golpe. Você continua decidindo; a pessoa só recebe o aviso.")
+    cc = ss.contato_confianca
+    if cc:
+        st.markdown(f'<div class="sa-card ok"><div class="titulo">👥 {cc["nome"]} · {cc["relacao"]}</div>'
+                    f'<div class="sub">Avisado por WhatsApp em: Pix acima de {D.brl(p["pix_padrao_max"])}, compra em outro estado, '
+                    f'troca de celular. Nunca vê seu saldo nem movimenta sua conta.</div></div>', unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Testar aviso", width="stretch"):
+                st.toast(f"Aviso de teste enviado para {cc['nome']} (simulado).")
+        with c2:
+            if st.button("Remover contato", width="stretch"):
+                ss.contato_confianca = None
+                st.rerun()
+    else:
+        with st.form("form_cc"):
+            c1, c2 = st.columns(2)
+            nome = c1.text_input("Nome", placeholder="Ex.: Ana")
+            relacao = c2.selectbox("Relação", ["filho(a)", "cônjuge", "irmão(ã)", "amigo(a)", "outro"])
+            st.text_input("Celular", placeholder="(11) 9xxxx-xxxx")
+            if st.form_submit_button("Cadastrar contato de confiança", type="primary", width="stretch"):
+                if nome.strip():
+                    ss.contato_confianca = {"nome": nome.strip(), "relacao": relacao}
+                    evento("Segurança", "contato_confianca", {})
+                    st.rerun()
+                else:
+                    st.warning("Informe o nome.")
     ss.modo_viagem = st.toggle("Modo viagem (libera compras em outro estado/país)", value=ss.modo_viagem)
     st.toggle("Bloquear Pix noturno (20h–6h) acima de " + D.brl(ss.limite_pix_noturno), value=True)
     st.markdown("#### Verificar se uma mensagem é golpe")

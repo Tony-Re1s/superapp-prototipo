@@ -81,7 +81,9 @@ INVESTIMENTOS (produtos que o cliente já tem; aplicar/resgatar usa um destes no
 {invs}
 CRÉDITO PESSOAL: pré-aprovado disponível {D.brl(ctx.get('credito_disponivel', 0))}, a partir de 1,49% a.m., parcelas de 6 a 48x.
 Dívida atual: {D.brl(ctx.get('divida', 0))}{contratos}.
-PRODUTOS ATIVOS NO APP: {prods}. Produtos que podem ser ativados: cartao, investimentos, credito, seguros.
+PRODUTOS ATIVOS NO APP: {prods}.
+PREFERE ATENDIMENTO HUMANO EM TEMAS SENSÍVEIS: {"sim — ofereça o Rafael mais cedo, na 1ª dúvida não resolvida" if ctx.get("prefere_humano") else "não"}.
+CONTATO DE CONFIANÇA: {ctx.get("contato_confianca") or "não cadastrado (sugira em Segurança se o tema for golpe)"}. Produtos que podem ser ativados: cartao, investimentos, credito, seguros.
 """
 
 
@@ -106,6 +108,7 @@ Tipos de ação permitidos:
 - {"tipo": "cartao_virtual"}
 - {"tipo": "pagar_boleto", "codigo": "<código de barras/linha digitável que o cliente enviou>"}
 - {"tipo": "ativar_produto", "produto": "<cartao|investimentos|credito|seguros>"}
+- {"tipo": "comprovante", "busca": "<valor ou nome citado, ex.: 50 ou Mãe>"} — abre os comprovantes já filtrados
 - {"tipo": "escalar_humano", "motivo": "<motivo curto>"}
 
 Regras:
@@ -173,6 +176,27 @@ def _regras(mensagem: str, ctx: dict) -> dict:
 
     if re.search(r"\b(saldo|quanto (eu )?tenho|quanto tem na conta)\b", m):
         return {"resposta": f"Seu saldo disponível é {D.brl(ctx['saldo'])}.", "acao": {"tipo": "nenhuma"}}
+
+    if "comprovante" in m or "recibo" in m:
+        valor = _numero(m)
+        quem = None
+        for c in ctx["contatos"]:
+            if _norm(c["nome"].split(" ")[0]) in m:
+                quem = c["nome"].split(" (")[0]
+        if not quem:
+            # qualquer palavra da mensagem que apareça nas descrições do extrato (ex.: Vivo, Enel, iFood)
+            palavras = [w for w in re.findall(r"[a-z0-9]{3,}", m) if w not in ("comprovante", "recibo", "pix", "pagamento", "para", "pra", "manda", "quero", "ultimo", "meu", "minha", "conta", "boleto")]
+            for d in ctx.get("descricoes", []):
+                dn = _norm(d)
+                for w in palavras:
+                    if w in dn:
+                        quem = d.split("— ")[-1] if "— " in d else d
+                        break
+                if quem:
+                    break
+        busca = quem or (f"{valor:.2f}".replace(".", ",") if valor else "")
+        return {"resposta": "Abri seus comprovantes" + (f" filtrados por {busca}" if busca else "") + ". É só tocar em Baixar.",
+                "acao": {"tipo": "comprovante", "busca": busca}}
 
     if "pix" in m or "transfer" in m or re.search(r"\b(manda|mande|envia|envie|passa|paga)\b.*\b(pra|pro|para)\b", m):
         valor = _numero(m)
