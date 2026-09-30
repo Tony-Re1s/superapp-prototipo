@@ -15,10 +15,12 @@ CSS = f"""
     /* container estreito, como uma tela de celular */
     .block-container {{
         max-width: 560px;
-        padding-top: 0.8rem;
+        padding-top: 1.2rem;
         padding-bottom: 4rem;
     }}
-    header[data-testid="stHeader"] {{ background: transparent; }}
+    /* a barra do Streamlit fica por cima da primeira linha do menu e rouba os cliques — some com ela */
+    header[data-testid="stHeader"] {{ display: none; }}
+    [data-testid="stAppViewContainer"] > .main {{ padding-top: 0; }}
     #MainMenu, footer {{ visibility: hidden; }}
     [data-testid="stSidebar"] {{ display: none; }}
 
