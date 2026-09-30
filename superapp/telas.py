@@ -212,9 +212,9 @@ def cards_resumo() -> None:
     cols = st.columns(len(itens))
     for col, (tit, sub, val, destino, cls) in zip(cols, itens):
         with col:
-            st.markdown(f'<div class="sa-resumo {cls}"><div class="rot">{tit}</div><div class="val">{val}</div>'
-                        f'<div class="sub">{sub}</div></div>', unsafe_allow_html=True)
-            if st.button("Abrir →", key=f"card_{cls}", width="stretch"):
+            # o card É o botão: rótulo em 3 linhas, pintado pelo CSS via classe .st-key-card_<cls>
+            rotulo = f"*{tit.upper()}* **{val}** {sub}".replace("$", "\\$")  # $ duplo vira LaTeX no Markdown
+            if st.button(rotulo, key=f"card_{cls}", width="stretch"):
                 ir_para(destino)
                 st.rerun()
 

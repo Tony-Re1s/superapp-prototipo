@@ -95,17 +95,29 @@ CSS = f"""
     .sa-ola {{ font-size: 1.25rem; color: {AZUL_ESCURO}; padding-top: 6px; }}
     div.stButton > button[kind="secondary"][data-testid] {{ }}
 
-    /* cards de resumo (topo da Início) */
-    .sa-resumo {{
-        border-radius: 16px; padding: 12px 14px 8px 14px; color: white; height: 100px; overflow: hidden;
-        background: linear-gradient(135deg, {LARANJA} 0%, {LARANJA_ESCURO} 100%);
-        box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+    /* cards de resumo (topo da Início) — são botões pintados como cards */
+    .st-key-card_conta button, .st-key-card_cartao button, .st-key-card_inv button {{
+        height: 104px; border: none; border-radius: 16px; color: white !important;
+        text-align: left; align-items: flex-start; justify-content: flex-start; padding: 12px 12px;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.12); white-space: normal;
     }}
-    .sa-resumo.cartao {{ background: linear-gradient(135deg, {AZUL} 0%, {AZUL_ESCURO} 100%); }}
-    .sa-resumo.inv {{ background: linear-gradient(135deg, #1B8A4A 0%, #0F5F32 100%); }}
-    .sa-resumo .rot {{ font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.9; }}
-    .sa-resumo .val {{ font-size: 1.35rem; font-weight: 800; line-height: 1.25; margin-top: 2px; }}
-    .sa-resumo .sub {{ font-size: 0.74rem; opacity: 0.9; margin-top: 2px; }}
+    .st-key-card_conta button {{ background: linear-gradient(135deg, {LARANJA} 0%, {LARANJA_ESCURO} 100%); }}
+    .st-key-card_cartao button {{ background: linear-gradient(135deg, {AZUL} 0%, {AZUL_ESCURO} 100%); }}
+    .st-key-card_inv button {{ background: linear-gradient(135deg, #1B8A4A 0%, #0F5F32 100%); }}
+    .st-key-card_conta button:hover, .st-key-card_cartao button:hover, .st-key-card_inv button:hover {{
+        filter: brightness(1.08); color: white !important; border: none;
+    }}
+    .st-key-card_conta button > div, .st-key-card_cartao button > div, .st-key-card_inv button > div {{ width: 100%; }}
+    .st-key-card_conta button p, .st-key-card_cartao button p, .st-key-card_inv button p {{
+        color: white !important; font-size: 0.72rem; line-height: 1.3; margin: 0; text-transform: none;
+        display: flex; flex-direction: column; align-items: flex-start; overflow: visible; white-space: normal; text-overflow: clip;
+    }}
+    .st-key-card_conta button em, .st-key-card_cartao button em, .st-key-card_inv button em {{
+        font-style: normal; font-size: 0.64rem; letter-spacing: 0.08em; opacity: 0.9; display: block;
+    }}
+    .st-key-card_conta button strong, .st-key-card_cartao button strong, .st-key-card_inv button strong {{
+        font-size: 1.25rem; font-weight: 800; white-space: nowrap; display: block; margin: 2px 0;
+    }}
 
     /* faixa fina de saldo nas demais telas */
     .sa-faixa {{
@@ -121,10 +133,9 @@ CSS = f"""
     @media (max-width: 640px) {{
         [data-testid="stHorizontalBlock"] {{ flex-wrap: nowrap !important; gap: 8px !important; }}
         [data-testid="stColumn"] {{ min-width: 0 !important; flex: 1 1 0 !important; }}
-        .sa-resumo .val {{ font-size: 0.92rem; white-space: nowrap; }}
-        .sa-resumo .rot {{ font-size: 0.62rem; }}
-        .sa-resumo .sub {{ font-size: 0.64rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-        .sa-resumo {{ padding: 10px 8px 6px 10px; height: 96px; }}
+        .st-key-card_conta button strong, .st-key-card_cartao button strong, .st-key-card_inv button strong {{ font-size: 0.95rem; }}
+        .st-key-card_conta button p, .st-key-card_cartao button p, .st-key-card_inv button p {{ font-size: 0.62rem; }}
+        .st-key-card_conta button, .st-key-card_cartao button, .st-key-card_inv button {{ padding: 10px 8px; height: 96px; }}
         div.stButton > button {{ padding-left: 6px; padding-right: 6px; }}
     }}
 
