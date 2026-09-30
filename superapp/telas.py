@@ -63,6 +63,7 @@ def persona() -> dict:
     nome = st.session_state.get("nome") or p["primeiro_nome"]
     p["primeiro_nome"] = nome
     p["nome"] = nome
+    p["chave_pix"] = f"{_norm_txt(nome)}@email.com"
     return p
 
 
@@ -325,83 +326,143 @@ def tela_pix() -> None:
     ss = st.session_state
     p = persona()
     st.markdown("### ⚡ Pix")
-    aba1, aba2, aba3, aba4, aba5 = st.tabs(["Enviar", "Receber", "QR Code", "Copia e Cola", "Limite"])
+    aba1, aba2, aba3 = st.tabs(["Enviar / Pagar", "Receber", "Limite"])
     contatos = D.CONTATOS_PIX[ss.persona]
 
+    # ------------------------------------------------------------- enviar / pagar
     with aba1:
-        pend = ss.pix_pendente or {}
-        st.caption("Envio em 2 toques: escolha um favorito, informe o valor e confirme.")
-        nomes = [c["nome"] for c in contatos]
-        idx = nomes.index(pend["destinatario"]) if pend.get("destinatario") in nomes else 0
-        dest = st.selectbox("Para quem?", nomes + ["Outra chave Pix…"], index=idx)
-        chave = ""
-        if dest == "Outra chave Pix…":
-            chave = st.text_input("Chave Pix (CPF, e-mail, celular ou aleatória)")
-        valor = st.number_input("Valor (R$)", min_value=0.0, step=10.0, value=float(pend.get("valor", 0.0)), format="%.2f")
-        msg = st.text_input("Mensagem (opcional)", placeholder="Ex.: almoço de domingo")
-        fora_padrao = valor > p["pix_padrao_max"]
-        if fora_padrao and valor > 0:
-            st.markdown(f'<div class="sa-card alerta"><div class="titulo">🛡️ Operação fora do seu padrão</div>'
-                        f'<div class="sub">Você costuma enviar até {D.brl(p["pix_padrao_max"])}. Por segurança, este Pix '
-                        f'pedirá confirmação reforçada' + (" e pode ser revisado pela nossa central." if p["prefere_humano"] else ".") +
-                        '</div></div>', unsafe_allow_html=True)
-        if valor > ss.saldo:
-            st.error("Saldo insuficiente para este Pix.")
-        elif valor > 0:
-            pode = True
-            if fora_padrao:
-                pode = confirmar_senha("pix", f"Pix de {D.brl(valor)} para {dest if chave == '' else chave}.")
-            else:
-                pode = st.button(f"Confirmar Pix de {D.brl(valor)}", type="primary", width="stretch")
-            if pode:
-                nome = dest if chave == "" else chave
-                lancar(f"Pix enviado — {nome.split(' (')[0]}", -valor, "Transferência")
-                ss.pix_pendente = None
-                ss.pix_confirmados += 1
-                evento("Pix", "enviado", {"valor": valor, "fora_padrao": fora_padrao})
-                st.success(f"Pix de {D.brl(valor)} enviado para {nome.split(' (')[0]}. Comprovante salvo no extrato.")
-                st.balloons()
+        modo = st.pills("Como quer pagar?", ["👥 Para um contato", "📷 Ler QR Code", "📋 Copia e cola"],
+                        default="👥 Para um contato", key="pix_modo", label_visibility="collapsed")
 
+        if modo == "👥 Para um contato" or modo is None:
+            pend = ss.pix_pendente or {}
+            st.caption("Envio em 2 toques: escolha um favorito, informe o valor e confirme.")
+            nomes = [c["nome"] for c in contatos]
+            idx = nomes.index(pend["destinatario"]) if pend.get("destinatario") in nomes else 0
+            dest = st.selectbox("Para quem?", nomes + ["Outra chave Pix…"], index=idx)
+            chave = ""
+            if dest == "Outra chave Pix…":
+                chave = st.text_input("Chave Pix (CPF, e-mail, celular ou aleatória)")
+            valor = st.number_input("Valor (R$)", min_value=0.0, step=10.0, value=float(pend.get("valor", 0.0)), format="%.2f")
+            st.text_input("Mensagem (opcional)", placeholder="Ex.: almoço de domingo")
+            fora_padrao = valor > p["pix_padrao_max"]
+            if fora_padrao and valor > 0:
+                st.markdown(f'<div class="sa-card alerta"><div class="titulo">🛡️ Operação fora do seu padrão</div>'
+                            f'<div class="sub">Você costuma enviar até {D.brl(p["pix_padrao_max"])}. Por segurança, este Pix '
+                            f'pedirá confirmação reforçada.</div></div>', unsafe_allow_html=True)
+            if valor > ss.saldo:
+                st.error("Saldo insuficiente para este Pix.")
+            elif valor > 0:
+                if fora_padrao:
+                    pode = confirmar_senha("pix", f"Pix de {D.brl(valor)} para {dest if chave == '' else chave}.")
+                else:
+                    pode = st.button(f"Confirmar Pix de {D.brl(valor)}", type="primary", width="stretch")
+                if pode:
+                    nome = dest if chave == "" else chave
+                    lancar(f"Pix enviado — {nome.split(' (')[0]}", -valor, "Transferência")
+                    ss.pix_pendente = None
+                    ss.pix_confirmados += 1
+                    evento("Pix", "enviado", {"valor": valor, "fora_padrao": fora_padrao})
+                    st.success(f"Pix de {D.brl(valor)} enviado para {nome.split(' (')[0]}. Comprovante salvo no extrato.")
+                    st.balloons()
+
+        elif modo == "📷 Ler QR Code":
+            st.caption("Aponte a câmera para o QR Code do recebedor.")
+            foto = st.camera_input("Abrir câmera", label_visibility="collapsed", key="pix_camera")
+            if foto is not None:
+                codigo = _decodificar_qr(foto.getvalue())
+                if codigo:
+                    _pagar_codigo_pix(codigo, origem="qr")
+                else:
+                    st.warning("Não consegui ler um QR Code nessa imagem. Tente aproximar e alinhar o código.")
+
+        else:
+            st.caption("Cole o código Pix copia e cola que você recebeu.")
+            cod = st.text_area("Código Pix", placeholder="00020126…", height=90, key="pix_cola", label_visibility="collapsed")
+            if cod.strip():
+                _pagar_codigo_pix(cod, origem="cola")
+
+    # ------------------------------------------------------------- receber
     with aba2:
-        st.markdown(f'<div class="sa-card"><div class="titulo">Sua chave Pix</div><div class="sub">{p["chave_pix"]}</div></div>', unsafe_allow_html=True)
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("📋 Copiar chave", width="stretch"):
-                st.toast("Chave copiada.")
-        with c2:
-            if st.button("📤 Compartilhar", width="stretch"):
-                st.toast("Compartilhado (simulado).")
-        st.caption("Outras chaves: CPF e chave aleatória. Para receber com valor definido, use a aba QR Code.")
-
-    with aba3:
-        st.caption("Gere um QR Code para receber. Quem pagar já vê o valor e a descrição.")
-        v = st.number_input("Valor (R$) — deixe 0 para o pagador escolher", min_value=0.0, step=10.0, format="%.2f", key="qr_valor")
+        st.markdown("**Sua chave Pix** — toque para copiar")
+        _chave_copiavel(p["chave_pix"])
+        st.markdown("**QR Code da sua chave** (fixo, sem valor)")
+        st.image(_qr(_codigo_pix(p["chave_pix"], 0, "", ss.nome)), width=200)
+        st.divider()
+        st.markdown("**QR Code com valor** (dinâmico)")
+        v = st.number_input("Valor (R$)", min_value=0.0, step=10.0, format="%.2f", key="qr_valor")
         desc = st.text_input("Descrição (opcional)", placeholder="Ex.: rateio do jantar", key="qr_desc")
-        codigo = _codigo_pix(p["chave_pix"], v, desc)
-        st.image(_qr(codigo), width=220)
-        st.code(codigo, language="text")
-        st.caption("QR fictício, apenas para o protótipo.")
+        if v > 0:
+            codigo = _codigo_pix(p["chave_pix"], v, desc, ss.nome)
+            st.image(_qr(codigo), width=200)
+            st.caption("Ou envie o código copia e cola:")
+            _chave_copiavel(codigo, rotulo="Copiar código", pequeno=True)
 
-    with aba4:
-        st.caption("Cole um código Pix copia e cola para pagar.")
-        cod = st.text_area("Código Pix", placeholder="00020126…", height=90, key="pix_cola", label_visibility="collapsed")
-        if cod.strip():
-            v_cola, quem = _ler_codigo_pix(cod)
-            estilo.card("Pagamento identificado", f"Para: {quem} · Valor {D.brl(v_cola)}")
-            estilo.card("🛡️ Verificação antifraude", "Recebedor sem denúncias e valor coerente com o seu histórico.", "ok")
-            if v_cola > ss.saldo:
-                st.error("Saldo insuficiente.")
-            elif st.button(f"Pagar {D.brl(v_cola)}", type="primary", width="stretch", key="pagar_cola"):
-                lancar(f"Pix copia e cola — {quem}", -v_cola, "Transferência")
-                evento("Pix", "copia_cola", {"valor": v_cola})
-                st.success(f"Pix de {D.brl(v_cola)} pago para {quem}.")
-
-    with aba5:
+    # ------------------------------------------------------------- limite
+    with aba3:
         st.caption("Limites que você mesmo controla — mudanças reduzem o dano em caso de golpe.")
         ss.limite_pix_noturno = st.slider("Limite Pix noturno (20h–6h)", 0, 5000, int(ss.limite_pix_noturno), 100, format="R$ %d")
         st.slider("Limite Pix diário", 0, 20000, 5000, 500, format="R$ %d", key="lim_diario")
         st.toggle("Exigir senha em todo Pix para contatos novos", value=True)
         st.toggle("Avisar meu contato de confiança em Pix acima do padrão", value=p["prefere_humano"])
+
+
+def _pagar_codigo_pix(cod: str, origem: str) -> None:
+    ss = st.session_state
+    v_cola, quem = _ler_codigo_pix(cod)
+    estilo.card("Pagamento identificado", f"Para: {quem} · Valor {D.brl(v_cola)}")
+    estilo.card("🛡️ Verificação antifraude", "Recebedor sem denúncias e valor coerente com o seu histórico.", "ok")
+    if v_cola > ss.saldo:
+        st.error("Saldo insuficiente.")
+    elif st.button(f"Pagar {D.brl(v_cola)}", type="primary", width="stretch", key=f"pagar_{origem}"):
+        lancar(f"Pix {'QR Code' if origem == 'qr' else 'copia e cola'} — {quem}", -v_cola, "Transferência")
+        evento("Pix", origem, {"valor": v_cola})
+        st.success(f"Pix de {D.brl(v_cola)} pago para {quem}.")
+
+
+def _chave_copiavel(texto: str, rotulo: str = "", pequeno: bool = False) -> None:
+    """Caixa clicável que copia o texto e mostra 'Copiada!'."""
+    import html
+    t = html.escape(texto)
+    fonte = "0.78rem" if pequeno else "1.05rem"
+    quebra = "break-all" if pequeno else "normal"
+    st.iframe(f"""
+    <div id="cx" onclick="copiar()" style="cursor:pointer;background:#F4F5F7;border:1.5px dashed #EC7000;border-radius:14px;
+         padding:14px 16px;font-family:sans-serif;color:#00226B;display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <span style="font-size:{fonte};font-weight:700;word-break:{quebra}">{t}</span>
+      <span id="st" style="font-size:0.8rem;color:#EC7000;white-space:nowrap">📋 {rotulo or 'Copiar'}</span>
+    </div>
+    <script>
+      function copiar() {{
+        const txt = {texto!r};
+        const ok = () => {{ const s = document.getElementById('st'); s.textContent = '✅ Copiada!'; s.style.color = '#1B8A4A';
+                            setTimeout(() => {{ s.textContent = '📋 {rotulo or "Copiar"}'; s.style.color = '#EC7000'; }}, 2500); }};
+        if (navigator.clipboard && navigator.clipboard.writeText) {{
+          navigator.clipboard.writeText(txt).then(ok).catch(() => fallback());
+        }} else {{ fallback(); }}
+        function fallback() {{
+          const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select();
+          try {{ document.execCommand('copy'); ok(); }} catch (e) {{}} document.body.removeChild(ta);
+        }}
+      }}
+    </script>
+    """, height=64 if not pequeno else 84)
+
+
+def _decodificar_qr(png: bytes) -> str | None:
+    try:
+        import cv2
+        import numpy as np
+        img = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)
+        det = cv2.QRCodeDetector()
+        for cand in (img, cv2.cvtColor(img, cv2.COLOR_BGR2GRAY),
+                     cv2.resize(img, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)):
+            texto, _, _ = det.detectAndDecode(cand)
+            if texto:
+                return texto
+        return None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _norm_txt(t: str) -> str:
@@ -410,10 +471,11 @@ def _norm_txt(t: str) -> str:
     return "".join(c for c in t if not unicodedata.combining(c))
 
 
-def _codigo_pix(chave: str, valor: float, desc: str) -> str:
+def _codigo_pix(chave: str, valor: float, desc: str, nome: str = "SUPERAPP") -> str:
+    nome = nome[:25]
     v = f"5406{valor:.2f}" if valor > 0 else ""
     d = f"62{len(desc) + 4:02d}05{len(desc):02d}{desc}" if desc else ""
-    return f"00020126{len(chave) + 22:02d}0014BR.GOV.BCB.PIX01{len(chave):02d}{chave}52040000530398{v}5802BR5908SUPERAPP6009SAO PAULO{d}6304ABCD"
+    return f"00020126{len(chave) + 22:02d}0014BR.GOV.BCB.PIX01{len(chave):02d}{chave}52040000530398{v}5802BR59{len(nome):02d}{nome}6009SAO PAULO{d}6304ABCD"
 
 
 def _ler_codigo_pix(cod: str) -> tuple[float, str]:
@@ -434,7 +496,7 @@ def _ler_codigo_pix(cod: str) -> tuple[float, str]:
 def _qr(texto: str):
     import io
     import qrcode
-    img = qrcode.make(texto, box_size=6, border=2)
+    img = qrcode.make(texto, box_size=8, border=4)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
