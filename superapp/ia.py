@@ -76,8 +76,10 @@ LIMITE DE PIX SEM CONFIRMAÇÃO REFORÇADA: {D.brl(p['pix_padrao_max'])} (acima 
 """
 
 
-SISTEMA = """Você é o assistente do Superapp, um banco digital fictício usado em um protótipo acadêmico (FIAP).
-Fale em português do Brasil, de forma curta, clara e humana (2 a 4 frases). Nunca invente dados: use apenas o CONTEXTO.
+SISTEMA = """Você é a Lia, assistente do Superapp, um banco digital fictício usado em um protótipo acadêmico (FIAP).
+Você é uma IA e não esconde isso, mas fala como uma pessoa da equipe: calorosa, direta, sem formalidade excessiva.
+Chame o cliente pelo primeiro nome de vez em quando (não em toda frase). Reconheça a situação antes de dar o número
+("Entendi, vamos ver isso juntos."). Português do Brasil, 2 a 4 frases, sem listas. Nunca invente dados: use apenas o CONTEXTO.
 Você EXECUTA ações, não apenas orienta. Quando o cliente pedir algo executável, devolva a ação correspondente.
 
 Responda SEMPRE e SOMENTE com um JSON válido neste formato:
@@ -93,7 +95,8 @@ Tipos de ação permitidos:
 
 Regras:
 - Se faltar um dado essencial para a ação (ex.: valor do Pix), pergunte e use "nenhuma".
-- Se o cliente demonstrar frustração, repetir o problema, ou pedir uma pessoa: use "escalar_humano" e acolha.
+- Se o cliente demonstrar frustração, repetir o problema, ou pedir uma pessoa: acolha, diga que vai chamar o Rafael
+  da equipe e que ele já vê a conversa (não precisa repetir nada), e use "escalar_humano".
 - Se o tema for golpe, fraude, compra não reconhecida, celular perdido ou senha vazada: primeiro proteja
   (sugira bloquear o cartão / limitar Pix) e use "escalar_humano" com motivo "segurança".
 - Perguntas sobre saldo, fatura, contas, gastos e investimentos: responda com os números do contexto.
@@ -209,11 +212,11 @@ def _regras(mensagem: str, ctx: dict) -> dict:
         return {"resposta": "Abri seu extrato. Você pode filtrar por período e tipo.", "acao": {"tipo": "ver_extrato"}}
 
     if re.search(r"\b(oi|ola|bom dia|boa tarde|boa noite|eai|e ai)\b", m):
-        return {"resposta": f"Oi, {p['primeiro_nome']}! Posso fazer Pix, pagar contas, mostrar fatura, gastos ou "
-                "bloquear seu cartão. O que você precisa?", "acao": {"tipo": "nenhuma"}}
+        return {"resposta": f"Oi, {p['primeiro_nome']}! Que bom falar com você. Posso fazer Pix, pagar contas, mostrar fatura, gastos ou "
+                "bloquear seu cartão. Me conta o que precisa.", "acao": {"tipo": "nenhuma"}}
 
-    return {"resposta": "Não entendi bem. Consigo fazer Pix, pagar contas, mostrar saldo, fatura, gastos e investimentos, "
-            "ou bloquear seu cartão. Se preferir, chamo uma pessoa para te atender.",
+    return {"resposta": f"Desculpa, {p['primeiro_nome']}, não peguei bem. Consigo fazer Pix, pagar contas, mostrar saldo, fatura, gastos e investimentos, "
+            "ou bloquear seu cartão. Se preferir, chamo o Rafael, da equipe, para falar com você.",
             "acao": {"tipo": "nenhuma"}, "nao_entendi": True}
 
 
@@ -239,12 +242,15 @@ def responder(mensagem: str, historico: list[dict], ctx: dict) -> dict:
     escalar = frustrado or seguranca or repetido or obj.get("acao", {}).get("tipo") == "escalar_humano"
     if seguranca and obj.get("acao", {}).get("tipo") not in ("bloquear_cartao", "escalar_humano"):
         obj["resposta"] = (
-            "Entendi — vamos proteger sua conta primeiro. Posso bloquear seu cartão agora e limitar o Pix até "
-            "você falar com nossa central de segurança. " + obj.get("resposta", "")
+            "Entendi, e fico do seu lado nisso. Vamos proteger sua conta primeiro: posso bloquear o cartão agora e limitar o Pix. "
+            "Já estou chamando o Rafael, da equipe de segurança — ele vê nossa conversa, não precisa repetir nada. " + obj.get("resposta", "")
         ).strip()
         obj["acao"] = {"tipo": "escalar_humano", "motivo": "segurança"}
     elif escalar and obj.get("acao", {}).get("tipo") != "escalar_humano":
         obj["acao"] = {"tipo": "escalar_humano", "motivo": "frustração" if frustrado else "não resolvido"}
+        if fonte == "regras":
+            obj["resposta"] = (f"Entendi, {ctx['persona']['primeiro_nome']}, e desculpa por não ter resolvido. Vou te passar para o Rafael, "
+                               "da nossa equipe. Ele já está vendo nossa conversa, então você não precisa explicar de novo.")
 
     obj.update({"fonte": fonte, "frustrado": frustrado, "seguranca": seguranca, "escalar": escalar})
     return obj

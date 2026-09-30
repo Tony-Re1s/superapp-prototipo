@@ -12,16 +12,21 @@ from . import db, estilo, ia
 
 TELAS = ["Início", "Pix", "Cartão", "Pagar", "Extrato", "Investir", "Gastos", "Avisos", "Assistente", "Segurança", "Avalie"]
 ICONES = {"Início": "🏠", "Pix": "⚡", "Cartão": "💳", "Pagar": "🧾", "Extrato": "📄", "Investir": "📈",
-          "Gastos": "🧭", "Avisos": "🔔", "Assistente": "🤖", "Segurança": "🛡️", "Avalie": "⭐"}
+          "Gastos": "🧭", "Avisos": "🔔", "Assistente": "💬", "Segurança": "🛡️", "Avalie": "⭐"}
 
 
 # ----------------------------------------------------------------------------- estado
-def iniciar_estado(persona_id: str) -> None:
+ASSISTENTE = "Lia"
+
+
+def iniciar_estado(persona_id: str, nome: str = "") -> None:
     p = D.PERSONAS[persona_id]
     ss = st.session_state
     ss.persona = persona_id
+    ss.nome = (nome or p["primeiro_nome"]).strip().split(" ")[0].capitalize()
     ss.sessao = ss.get("sessao") or uuid.uuid4().hex[:12]
     ss.mostrar_saldo = True
+    ss.produtos = {"cartao": True, "investimentos": True}
     ss.saldo = p["saldo"]
     ss.cartao_bloqueado = False
     ss.cartao_virtual = None
@@ -45,7 +50,24 @@ def iniciar_estado(persona_id: str) -> None:
 
 
 def persona() -> dict:
-    return D.PERSONAS[st.session_state.persona]
+    """Perfil da pessoa logada — dados da persona base com o nome informado no login."""
+    p = dict(D.PERSONAS[st.session_state.persona])
+    nome = st.session_state.get("nome") or p["primeiro_nome"]
+    p["primeiro_nome"] = nome
+    p["nome"] = nome
+    return p
+
+
+def telas_disponiveis() -> list[str]:
+    """Menu montado pelos produtos: conta corrente é fixa; cartão e investimentos, só se a pessoa tiver."""
+    prod = st.session_state.get("produtos", {})
+    telas = ["Início", "Pix", "Pagar", "Extrato"]
+    if prod.get("cartao", True):
+        telas.append("Cartão")
+    if prod.get("investimentos", True):
+        telas.append("Investir")
+    telas += ["Gastos", "Avisos", "Assistente", "Segurança", "Avalie"]
+    return telas
 
 
 def ir_para(tela: str) -> None:
@@ -73,6 +95,7 @@ def contexto_ia() -> dict:
         "contatos": D.CONTATOS_PIX[st.session_state.persona],
         "gastos_categoria": gastos_por_categoria(),
         "cartao_bloqueado": st.session_state.cartao_bloqueado,
+        "assistente": ASSISTENTE,
     }
 
 
@@ -83,6 +106,19 @@ def lancar(descricao: str, valor: float, categoria: str) -> None:
     nova = pd.DataFrame([{"data": D.HOJE, "descricao": descricao, "valor": valor, "categoria": categoria,
                           "tipo": "Crédito" if valor > 0 else "Débito", "saldo": ss.saldo}])
     ss.extrato = pd.concat([ss.extrato, nova], ignore_index=True)
+
+
+def fatura_total() -> float:
+    return 0.0 if st.session_state.fatura_paga else persona()["fatura_atual"]
+
+
+def investido_total() -> float:
+    return sum(i["valor"] for i in st.session_state.investimentos)
+
+
+def valor(v: float) -> str:
+    """Formata em R$ ou oculta, conforme o olho do cabeçalho."""
+    return D.brl(v) if st.session_state.get("mostrar_saldo", True) else "R$ ••••••"
 
 
 def confirmar_senha(chave: str, texto: str) -> bool:
@@ -104,21 +140,24 @@ def confirmar_senha(chave: str, texto: str) -> bool:
 # ----------------------------------------------------------------------------- entrada
 def tela_entrada() -> None:
     st.markdown(
-        '<div class="sa-topo"><div class="marca">SUPERAPP <span>protótipo</span></div>'
-        '<div class="ola">Acesse sua conta</div>'
-        '<div class="conta" style="margin-top:10px">Protótipo acadêmico: use qualquer CPF e qualquer senha. '
-        'Explore o app como você faria no seu banco e, no final, avalie na aba ⭐ Avalie.</div></div>',
+        '<div class="sa-topo"><div class="marca">SUPERAPP</div>'
+        '<div class="ola">Que bom ter você aqui</div>'
+        '<div class="conta" style="margin-top:10px">Diga como quer ser chamado e use qualquer senha. '
+        'Explore o app como faria no seu banco e, no final, avalie na aba ⭐ Avalie.</div></div>',
         unsafe_allow_html=True,
     )
     with st.form("login"):
-        st.text_input("CPF", placeholder="000.000.000-00", max_chars=14)
+        nome = st.text_input("Como você quer ser chamado(a)?", placeholder="Seu primeiro nome", max_chars=30)
         st.text_input("Senha", type="password", placeholder="••••••", max_chars=12)
         st.checkbox("Lembrar meu acesso neste aparelho", value=True)
         entrar = st.form_submit_button("Entrar", type="primary", width="stretch")
     if entrar:
-        iniciar_estado("padrao")
-        evento("Entrada", "login", {})
-        st.rerun()
+        if not nome.strip():
+            st.warning("Só preciso do seu nome para continuar.")
+        else:
+            iniciar_estado("padrao", nome)
+            evento("Entrada", "login", {})
+            st.rerun()
     c1, c2 = st.columns(2)
     c1.button("Esqueci minha senha", width="stretch")
     c2.button("Abrir conta", width="stretch")
@@ -126,35 +165,70 @@ def tela_entrada() -> None:
         '<div class="sa-card ia"><div class="titulo">Sobre este protótipo</div><div class="sub">'
         "O app simula um banco digital completo (conta, Pix, cartão, pagamentos, investimentos, controle de gastos, "
         "assistente com IA e central de segurança) desenhado a partir das dores levantadas na pesquisa de campo "
-        "<i>“Você e seu banco”</i> (n=56). Todos os dados financeiros são fictícios; nenhum dado seu é lido.</div></div>",
+        "<i>“Você e seu banco”</i> (n=56). Todos os dados financeiros são fictícios. Seu nome fica só nesta sessão "
+        "e não é gravado.</div></div>",
         unsafe_allow_html=True,
     )
     estilo.rodape()
+
+
+# ----------------------------------------------------------------------------- cabeçalho, cards e faixa
+def cabecalho() -> None:
+    ss = st.session_state
+    p = persona()
+    c1, c2, c3 = st.columns([4, 1, 1])
+    with c1:
+        st.markdown(f'<div class="sa-ola">Olá, <b>{ss.nome}</b> 👋</div>', unsafe_allow_html=True)
+    with c2:
+        if st.button("🙈" if ss.mostrar_saldo else "👁️", key="olho", help="Ocultar/mostrar valores", width="stretch"):
+            ss.mostrar_saldo = not ss.mostrar_saldo
+            st.rerun()
+    with c3:
+        with st.popover("👤", width="stretch"):
+            st.markdown(f"**{ss.nome}**  \nCliente há {p['tempo_cliente']}")
+            st.caption(f"Agência {p['agencia']} · Conta {p['conta']}  \nChave Pix: {p['chave_pix']}")
+            st.markdown("**Meus produtos**")
+            ss.produtos["cartao"] = st.toggle("Cartão de crédito", value=ss.produtos["cartao"], key="prod_cartao")
+            ss.produtos["investimentos"] = st.toggle("Investimentos", value=ss.produtos["investimentos"], key="prod_inv")
+            st.caption("Desligue um produto para ver o menu se adaptar.")
+            if st.button("Sair", width="stretch", key="sair"):
+                for k in list(ss.keys()):
+                    del ss[k]
+                st.rerun()
+
+
+def cards_resumo() -> None:
+    """Três cards no topo (zona de leitura), um por produto. Tocar abre a seção."""
+    ss = st.session_state
+    p = persona()
+    itens = [("Conta", "Saldo disponível", valor(ss.saldo), "Extrato", "conta")]
+    if ss.produtos.get("cartao", True):
+        fat = fatura_total()
+        sub = "Fatura paga ✓" if fat == 0 else f"Fatura · vence {D.data_br(p['fatura_vencimento'])}"
+        itens.append(("Cartão", sub, valor(fat), "Cartão", "cartao"))
+    if ss.produtos.get("investimentos", True):
+        tot = investido_total()
+        itens.append(("Investimentos", f"+{valor(tot * 0.0085)} este mês", valor(tot), "Investir", "inv"))
+    cols = st.columns(len(itens))
+    for col, (tit, sub, val, destino, cls) in zip(cols, itens):
+        with col:
+            st.markdown(f'<div class="sa-resumo {cls}"><div class="rot">{tit}</div><div class="val">{val}</div>'
+                        f'<div class="sub">{sub}</div></div>', unsafe_allow_html=True)
+            if st.button("Abrir →", key=f"card_{cls}", width="stretch"):
+                ir_para(destino)
+                st.rerun()
+
+
+def faixa_saldo() -> None:
+    """Nas demais telas: só uma faixa fina com o saldo."""
+    st.markdown(f'<div class="sa-faixa">Saldo disponível <b>{valor(st.session_state.saldo)}</b></div>',
+                unsafe_allow_html=True)
 
 
 # ----------------------------------------------------------------------------- início
 def tela_inicio() -> None:
     ss = st.session_state
     p = persona()
-    estilo.topo(p["primeiro_nome"], D.brl(ss.saldo), f"Ag {p['agencia']} · Conta {p['conta']}", ss.mostrar_saldo)
-    c1, c2 = st.columns([1, 3])
-    with c1:
-        if st.button("👁️ Ocultar" if ss.mostrar_saldo else "👁️ Mostrar", width="stretch"):
-            ss.mostrar_saldo = not ss.mostrar_saldo
-            st.rerun()
-    with c2:
-        st.caption("Atalhos priorizados pelo seu padrão de uso")
-
-    # atalhos por persona (dor: excesso de telas — 19 menções)
-    atalhos = {"Pix": "Pix", "Pagar conta": "Pagar", "Extrato": "Extrato", "Segurança": "Segurança",
-               "Cartão": "Cartão", "Gastos": "Gastos", "Assistente": "Assistente"}
-    cols = st.columns(4)
-    for i, nome in enumerate(p["atalhos"]):
-        destino = atalhos[nome]
-        with cols[i]:
-            if st.button(f"{ICONES[destino]}\n{nome}", key=f"atalho_{i}", width="stretch"):
-                ir_para(destino)
-                st.rerun()
 
     # alertas inteligentes
     vencidas = [c for c in ss.contas if c["status"] == "vencida"]
@@ -177,19 +251,18 @@ def tela_inicio() -> None:
     if g:
         top = next(iter(g))
         mensal = sum(g.values())
-        estilo.card("✨ Insight da IA", f"Você gastou {D.brl(mensal)} nos últimos 30 dias. Maior categoria: {top} "
-                    f"({D.brl(g[top])}). Previsão de fechar o mês com saldo de {D.brl(ss.saldo - sum(c['valor'] for c in ss.contas if c['status'] != 'paga'))} "
+        estilo.card("✨ Insight da IA", f"Você gastou {valor(mensal)} nos últimos 30 dias. Maior categoria: {top} "
+                    f"({valor(g[top])}). Previsão de fechar o mês com saldo de {valor(ss.saldo - sum(c['valor'] for c in ss.contas if c['status'] != 'paga'))} "
                     "após as contas pendentes.", "ia")
 
-    # cartão resumo
-    lim = p["limite_cartao"]
-    fat = 0.0 if ss.fatura_paga else p["fatura_atual"]
-    st.markdown("#### Cartão de crédito")
-    st.progress(min(fat / lim, 1.0), text=f"Fatura {D.brl(fat)} de {D.brl(lim)} de limite · vence {D.data_br(p['fatura_vencimento'])}")
+    if ss.produtos.get("cartao", True):
+        lim = p["limite_cartao"]
+        fat = fatura_total()
+        st.progress(min(fat / lim, 1.0), text=f"Limite do cartão: {valor(fat)} usados de {valor(lim)}")
 
     st.markdown("#### Últimas movimentações")
     ult = ss.extrato.sort_values("data", ascending=False).head(5)
-    estilo.linhas([(r.descricao, f"{D.data_br(r.data)} · {r.categoria}", D.brl(r.valor), r.valor > 0) for r in ult.itertuples()])
+    estilo.linhas([(r.descricao, f"{D.data_br(r.data)} · {r.categoria}", valor(r.valor), r.valor > 0) for r in ult.itertuples()])
     if st.button("Ver extrato completo", width="stretch"):
         ir_para("Extrato")
         st.rerun()
@@ -264,7 +337,7 @@ def tela_cartao() -> None:
         f'box-shadow:0 6px 18px rgba(0,51,153,.25)"><div class="marca">SUPERAPP <span style="background:{estilo.LARANJA}">'
         f'{"BLOQUEADO" if ss.cartao_bloqueado else "Platinum"}</span></div>'
         f'<div class="conta" style="margin-top:22px;font-size:1.05rem;letter-spacing:.15em">•••• •••• •••• 4417</div>'
-        f'<div class="conta">{p["nome"].upper()} · VAL 09/31</div>'
+        f'<div class="conta">{ss.nome.upper()} · VAL 09/31</div>'
         f'<div class="saldo-rotulo">Fatura atual</div><div class="saldo">{D.brl(fat)}</div>'
         f'<div class="conta">Vence {D.data_br(p["fatura_vencimento"])} · Limite disponível {D.brl(disp)}</div></div>',
         unsafe_allow_html=True,
@@ -559,53 +632,70 @@ def _executar_acao(acao: dict) -> str | None:
     return None
 
 
+def _digitando(texto: str, delay: float = 0.012):
+    """Gera a resposta palavra por palavra, como alguém digitando."""
+    import time
+    for palavra in texto.split(" "):
+        yield palavra + " "
+        time.sleep(delay)
+
+
 def tela_assistente() -> None:
     ss = st.session_state
     p = persona()
-    st.markdown("### 🤖 Assistente")
-    modo = "IA generativa (API Claude)" if ia.api_disponivel() else "reconhecimento de intenção por regras"
-    st.caption(f"Entende o que você escreve e executa a ação. Motor ativo: {modo}. "
-               "Se não resolver, chama uma pessoa — sem você repetir o problema.")
+    AV = "💬"
+    st.markdown(f"### {AV} {ASSISTENTE}")
+    modo = "IA generativa" if ia.api_disponivel() else "regras"
+    st.caption(f"Assistente do Superapp · online agora · {modo}")
+    if not ss.chat:
+        with st.chat_message("assistant", avatar=AV):
+            st.markdown(f"Oi, {ss.nome}! Eu sou a **{ASSISTENTE}**, assistente do Superapp. Sou uma IA, mas resolvo de verdade: "
+                        "faço Pix, pago contas, mostro sua fatura e seus gastos. E se em algum momento você preferir "
+                        "falar com uma pessoa, é só me dizer que eu chamo alguém da equipe — sem você repetir nada. "
+                        "O que você precisa hoje?")
     sugestoes = ["Qual meu saldo?", "Manda 50 pra " + D.CONTATOS_PIX[ss.persona][0]["nome"].split(" ")[0],
                  "Quanto está minha fatura?", "Onde gastei mais esse mês?", "Tem conta vencida?", "Bloqueia meu cartão"]
-    esc = st.pills("Sugestões", sugestoes, key="sug_chat")
+    esc = st.pills("Sugestões", sugestoes, key="sug_chat", label_visibility="collapsed")
     for h in ss.chat:
-        with st.chat_message(h["role"], avatar="🧑" if h["role"] == "user" else "🤖"):
+        with st.chat_message(h["role"], avatar="🧑" if h["role"] == "user" else AV):
             st.markdown(h["content"])
     if ss.fila_humano:
         f = ss.fila_humano
-        st.markdown(f'<div class="sa-card alerta"><div class="titulo">🙋 Atendimento humano acionado</div><div class="sub">'
+        st.markdown(f'<div class="sa-card alerta"><div class="titulo">🙋 Rafael, da nossa equipe, vai assumir</div><div class="sub">'
                     f'Motivo: {f["motivo"]}. Você é o nº {f["posicao"]} da fila prioritária (espera estimada {f["espera"]}). '
-                    f'O atendente já recebe o histórico desta conversa — você não precisa repetir nada.'
-                    f'{" Como você prefere falar com uma pessoa, sua fila é prioritária." if p["prefere_humano"] else ""}</div></div>',
+                    f'O Rafael já está lendo esta conversa — você não precisa repetir nada.</div></div>',
                     unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("📞 Receber ligação (callback)", width="stretch", type="primary"):
-                st.success("Callback agendado. Ligaremos em até " + f["espera"] + ".")
+            if st.button("📞 Prefiro que me liguem", width="stretch", type="primary"):
+                st.success("Combinado. O Rafael liga em até " + f["espera"] + ".")
                 evento("Assistente", "callback", f)
         with c2:
-            if st.button("Continuar com o assistente", width="stretch"):
+            if st.button(f"Continuar com a {ASSISTENTE}", width="stretch"):
                 ss.fila_humano = None
                 st.rerun()
-    entrada = st.chat_input("Escreva o que precisa, do seu jeito…")
+    entrada = st.chat_input(f"Fale com a {ASSISTENTE} do seu jeito…")
     msg = entrada or esc
     if msg and msg != ss.get("_ultima_sugestao"):
         if esc and not entrada:
             ss["_ultima_sugestao"] = esc
         with st.chat_message("user", avatar="🧑"):
             st.markdown(msg)
-        with st.spinner("Pensando…"):
+        with st.chat_message("assistant", avatar=AV):
+            espaco = st.empty()
+            espaco.caption(f"{ASSISTENTE} está digitando…")
             r = ia.responder(msg, ss.chat, contexto_ia())
+            espaco.empty()
+            st.write_stream(_digitando(r["resposta"]))
         ss.chat.append({"role": "user", "content": msg})
         ss.chat.append({"role": "assistant", "content": r["resposta"]})
         destino = _executar_acao(r.get("acao", {}))
         evento("Assistente", "mensagem", {"fonte": r["fonte"], "acao": r.get("acao", {}).get("tipo"),
                                            "escalar": r["escalar"], "uso": r.get("uso")})
-        with st.chat_message("assistant", avatar="🤖"):
-            st.markdown(r["resposta"])
         if destino:
-            st.info(f"Abrindo {destino}…")
+            import time
+            st.info(f"Abrindo {destino} para você…")
+            time.sleep(0.8)
             ir_para(destino)
         st.rerun()
     if ss.get("ia_erro"):

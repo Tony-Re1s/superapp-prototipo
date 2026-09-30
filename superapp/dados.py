@@ -89,10 +89,10 @@ CATEGORIAS = {
 
 CONTATOS_PIX = {
     "padrao": [
-        {"nome": "Carla (irmã)", "chave": "carla.lima@email.com", "banco": "Nubank"},
-        {"nome": "Bruno", "chave": "11 98811-2244", "banco": "Superapp"},
+        {"nome": "Irmã", "chave": "irma@email.com", "banco": "Nubank"},
+        {"nome": "Melhor amigo(a)", "chave": "11 98811-2244", "banco": "Superapp"},
         {"nome": "Mãe", "chave": "11 97700-5566", "banco": "Caixa"},
-        {"nome": "Dr. Paulo (dentista)", "chave": "22.333.444/0001-55", "banco": "Bradesco"},
+        {"nome": "Dentista", "chave": "22.333.444/0001-55", "banco": "Bradesco"},
     ],
     "marisa": [
         {"nome": "Ana Andrade (filha)", "chave": "ana.andrade@email.com", "banco": "Nubank"},

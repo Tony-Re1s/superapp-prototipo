@@ -90,6 +90,44 @@ CSS = f"""
     /* atalhos da tela inicial */
     .sa-atalho button {{ height: 72px !important; white-space: pre-line; }}
 
+
+    /* cabeçalho enxuto */
+    .sa-ola {{ font-size: 1.25rem; color: {AZUL_ESCURO}; padding-top: 6px; }}
+    div.stButton > button[kind="secondary"][data-testid] {{ }}
+
+    /* cards de resumo (topo da Início) */
+    .sa-resumo {{
+        border-radius: 16px; padding: 12px 14px 8px 14px; color: white; height: 100px; overflow: hidden;
+        background: linear-gradient(135deg, {LARANJA} 0%, {LARANJA_ESCURO} 100%);
+        box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+    }}
+    .sa-resumo.cartao {{ background: linear-gradient(135deg, {AZUL} 0%, {AZUL_ESCURO} 100%); }}
+    .sa-resumo.inv {{ background: linear-gradient(135deg, #1B8A4A 0%, #0F5F32 100%); }}
+    .sa-resumo .rot {{ font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.9; }}
+    .sa-resumo .val {{ font-size: 1.35rem; font-weight: 800; line-height: 1.25; margin-top: 2px; }}
+    .sa-resumo .sub {{ font-size: 0.74rem; opacity: 0.9; margin-top: 2px; }}
+
+    /* faixa fina de saldo nas demais telas */
+    .sa-faixa {{
+        background: {CINZA}; border-radius: 12px; padding: 8px 14px; font-size: 0.9rem; color: {AZUL_ESCURO};
+        display: flex; justify-content: space-between; margin-bottom: 6px;
+    }}
+
+    /* popover de perfil */
+    [data-testid="stPopover"] button {{ border-radius: 12px; }}
+
+
+    /* no celular o Streamlit empilha as colunas; aqui o cabeçalho e os cards ficam lado a lado */
+    @media (max-width: 640px) {{
+        [data-testid="stHorizontalBlock"] {{ flex-wrap: nowrap !important; gap: 8px !important; }}
+        [data-testid="stColumn"] {{ min-width: 0 !important; flex: 1 1 0 !important; }}
+        .sa-resumo .val {{ font-size: 0.92rem; white-space: nowrap; }}
+        .sa-resumo .rot {{ font-size: 0.62rem; }}
+        .sa-resumo .sub {{ font-size: 0.64rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+        .sa-resumo {{ padding: 10px 8px 6px 10px; height: 96px; }}
+        div.stButton > button {{ padding-left: 6px; padding-right: 6px; }}
+    }}
+
     [data-testid="stMetricValue"] {{ color: {AZUL_ESCURO}; }}
     .stProgress > div > div > div > div {{ background: {LARANJA}; }}
     [data-testid="stChatMessage"] {{ border-radius: 14px; }}

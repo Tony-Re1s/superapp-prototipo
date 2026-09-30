@@ -6,7 +6,7 @@ import streamlit as st
 
 from superapp import estilo, telas
 
-st.set_page_config(page_title="Superapp — protótipo", page_icon="🟠", layout="centered",
+st.set_page_config(page_title="Superapp", page_icon="🟠", layout="centered",
                    initial_sidebar_state="collapsed")
 estilo.aplicar_css()
 
@@ -19,20 +19,37 @@ if "persona" not in st.session_state:
     telas.tela_entrada()
     st.stop()
 
-# navegação — o valor do widget é sincronizado com st.session_state.tela ANTES de o widget ser criado,
-# assim tanto o clique na pílula quanto a navegação por código (atalhos, assistente) funcionam.
-opcoes = [f"{telas.ICONES[t]} {t}" for t in telas.TELAS]
-st.session_state["nav"] = f"{telas.ICONES[st.session_state.tela]} {st.session_state.tela}"
+ss = st.session_state
+
+# ----------------------------------------------------------------------------- cabeçalho
+telas.cabecalho()
+
+# ----------------------------------------------------------------------------- cards (só na Início)
+if ss.tela == "Início":
+    telas.cards_resumo()
+else:
+    telas.faixa_saldo()
+
+# ----------------------------------------------------------------------------- menu (zona do polegar)
+# O menu é montado pelos produtos que a pessoa tem; conta corrente é fixa.
+# O valor do widget é sincronizado com ss.tela ANTES de o widget ser criado, assim tanto o toque na
+# pílula quanto a navegação por código (cards, atalhos, assistente) funcionam.
+telas_menu = telas.telas_disponiveis()
+if ss.tela not in telas_menu:
+    ss.tela = "Início"
+opcoes = [f"{telas.ICONES[t]} {t}" for t in telas_menu]
+ss["nav"] = f"{telas.ICONES[ss.tela]} {ss.tela}"
 
 
 def _navegar():
-    escolha = st.session_state.get("nav")
+    escolha = ss.get("nav")
     if escolha:
         telas.ir_para(escolha.split(" ", 1)[1])
 
 
 st.pills("Navegação", opcoes, key="nav", on_change=_navegar, label_visibility="collapsed")
 
+# ----------------------------------------------------------------------------- conteúdo
 {
     "Início": telas.tela_inicio,
     "Pix": telas.tela_pix,
@@ -45,18 +62,11 @@ st.pills("Navegação", opcoes, key="nav", on_change=_navegar, label_visibility=
     "Assistente": telas.tela_assistente,
     "Segurança": telas.tela_seguranca,
     "Avalie": telas.tela_avaliar,
-}[st.session_state.tela]()
+}[ss.tela]()
 
 st.divider()
-c1, c2 = st.columns([3, 1])
-with c1:
-    if not st.session_state.get("avaliado"):
-        if st.button("⭐ Terminou de explorar? Avalie o protótipo", width="stretch", type="primary"):
-            telas.ir_para("Avalie")
-            st.rerun()
-with c2:
-    if st.button("Sair", width="stretch"):
-        for k in list(st.session_state.keys()):
-            del st.session_state[k]
+if not ss.get("avaliado") and ss.tela != "Avalie":
+    if st.button("⭐ Terminou de explorar? Avalie o protótipo", width="stretch", type="primary"):
+        telas.ir_para("Avalie")
         st.rerun()
 estilo.rodape()
