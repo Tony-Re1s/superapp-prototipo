@@ -12,11 +12,15 @@ from . import db, estilo, ia
 
 TELAS = ["Início", "Pix", "Cartão", "Pagar", "Extrato", "Investir", "Gastos", "Avisos", "Assistente", "Segurança", "Avalie"]
 ICONES = {"Início": "🏠", "Pix": "⚡", "Cartão": "💳", "Pagar": "🧾", "Extrato": "📄", "Investir": "📈",
-          "Gastos": "🧭", "Avisos": "🔔", "Assistente": "💬", "Segurança": "🛡️", "Avalie": "⭐"}
+          "Gastos": "🧭", "Avisos": "🔔", "Assistente": "💬", "Segurança": "🛡️", "Avalie": "⭐",
+          "Crédito": "🏦", "Seguros": "☂️"}
 
 
 # ----------------------------------------------------------------------------- estado
 ASSISTENTE = "Lia"
+MAX_PRODUTOS = 4  # cards na tela inicial, incluindo a conta corrente
+PRODUTOS_OPCIONAIS = [("cartao", "Cartão de crédito"), ("investimentos", "Investimentos"),
+                      ("credito", "Crédito pessoal"), ("seguros", "Seguros")]
 
 
 def iniciar_estado(persona_id: str, nome: str = "") -> None:
@@ -26,7 +30,7 @@ def iniciar_estado(persona_id: str, nome: str = "") -> None:
     ss.nome = (nome or p["primeiro_nome"]).strip().split(" ")[0].capitalize()
     ss.sessao = ss.get("sessao") or uuid.uuid4().hex[:12]
     ss.mostrar_saldo = True
-    ss.produtos = {"cartao": True, "investimentos": True}
+    ss.produtos = {"cartao": True, "investimentos": True, "credito": False, "seguros": False}
     ss.saldo = p["saldo"]
     ss.cartao_bloqueado = False
     ss.cartao_virtual = None
@@ -66,6 +70,10 @@ def telas_disponiveis() -> list[str]:
         telas.append("Cartão")
     if prod.get("investimentos", True):
         telas.append("Investir")
+    if prod.get("credito", False):
+        telas.append("Crédito")
+    if prod.get("seguros", False):
+        telas.append("Seguros")
     telas += ["Gastos", "Avisos", "Assistente", "Segurança", "Avalie"]
     return telas
 
@@ -188,9 +196,15 @@ def cabecalho() -> None:
             st.markdown(f"**{ss.nome}**  \nCliente há {p['tempo_cliente']}")
             st.caption(f"Agência {p['agencia']} · Conta {p['conta']}  \nChave Pix: {p['chave_pix']}")
             st.markdown("**Meus produtos**")
-            ss.produtos["cartao"] = st.toggle("Cartão de crédito", value=ss.produtos["cartao"], key="prod_cartao")
-            ss.produtos["investimentos"] = st.toggle("Investimentos", value=ss.produtos["investimentos"], key="prod_inv")
-            st.caption("Desligue um produto para ver o menu se adaptar.")
+            st.caption("Conta corrente · sempre ativa")
+            ativos = sum(1 for v in ss.produtos.values() if v)
+            lotado = ativos >= MAX_PRODUTOS - 1  # conta corrente ocupa a 1ª vaga
+            for chave, rotulo in PRODUTOS_OPCIONAIS:
+                ligado = ss.produtos.get(chave, False)
+                novo = st.toggle(rotulo, value=ligado, key=f"prod_{chave}", disabled=(lotado and not ligado))
+                if novo != ligado:
+                    ss.produtos[chave] = novo
+                    st.rerun()
             if st.button("Sair", width="stretch", key="sair"):
                 for k in list(ss.keys()):
                     del ss[k]
@@ -198,25 +212,26 @@ def cabecalho() -> None:
 
 
 def cards_resumo() -> None:
-    """Três cards no topo (zona de leitura), um por produto. Tocar abre a seção."""
+    """Cards no topo (zona de leitura), um por produto, em coluna. O card é o botão."""
     ss = st.session_state
     p = persona()
     itens = [("Conta", "Saldo disponível", valor(ss.saldo), "Extrato", "conta")]
-    if ss.produtos.get("cartao", True):
+    if ss.produtos.get("cartao"):
         fat = fatura_total()
         sub = "Fatura paga ✓" if fat == 0 else f"Fatura · vence {D.data_br(p['fatura_vencimento'])}"
         itens.append(("Cartão", sub, valor(fat), "Cartão", "cartao"))
-    if ss.produtos.get("investimentos", True):
+    if ss.produtos.get("investimentos"):
         tot = investido_total()
         itens.append(("Investimentos", f"+{valor(tot * 0.0085)} este mês", valor(tot), "Investir", "inv"))
-    cols = st.columns(len(itens))
-    for col, (tit, sub, val, destino, cls) in zip(cols, itens):
-        with col:
-            # o card É o botão: rótulo em 3 linhas, pintado pelo CSS via classe .st-key-card_<cls>
-            rotulo = f"*{tit.upper()}* **{val}** {sub}".replace("$", "\\$")  # $ duplo vira LaTeX no Markdown
-            if st.button(rotulo, key=f"card_{cls}", width="stretch"):
-                ir_para(destino)
-                st.rerun()
+    if ss.produtos.get("credito"):
+        itens.append(("Crédito", "Pré-aprovado · a partir de 1,49% a.m.", valor(p["salario"] * 4), "Crédito", "cred"))
+    if ss.produtos.get("seguros"):
+        itens.append(("Seguros", "Vida + celular · próximo débito 05/10", valor(39.90), "Seguros", "seg"))
+    for tit, sub, val, destino, cls in itens[:MAX_PRODUTOS]:
+        rotulo = f"*{tit.upper()}* **{val}** {sub}".replace("$", "\\$")  # $ duplo vira LaTeX no Markdown
+        if st.button(rotulo, key=f"card_{cls}", width="stretch"):
+            ir_para(destino)
+            st.rerun()
 
 
 def faixa_saldo() -> None:
@@ -750,6 +765,50 @@ def tela_seguranca() -> None:
     st.markdown("#### Dispositivos conectados")
     estilo.linhas([("iPhone de " + p["primeiro_nome"], "Este aparelho · São Paulo", "ativo", True),
                    ("Notebook Windows", "Acesso web · 3 dias atrás", "encerrar", False)])
+
+
+# ----------------------------------------------------------------------------- crédito e seguros
+def tela_credito() -> None:
+    ss = st.session_state
+    p = persona()
+    st.markdown("### 🏦 Crédito pessoal")
+    limite = p["salario"] * 4
+    estilo.card("Pré-aprovado para você", f"Até {valor(limite)} · a partir de 1,49% a.m. · sem consulta adicional. "
+                "Só é ofertado aqui porque você ativou o produto — não aparece em notificação.", "ok")
+    v = st.slider("Quanto você precisa?", 500.0, float(limite), min(3000.0, float(limite)), 100.0, format="R$ %.0f")
+    n = st.select_slider("Em quantas parcelas?", options=[6, 12, 18, 24, 36, 48], value=12)
+    i = 0.0149
+    parcela = v * i / (1 - (1 + i) ** -n)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Parcela", D.brl(parcela))
+    c2.metric("Total", D.brl(parcela * n))
+    c3.metric("CET aprox.", f"{((1 + i) ** 12 - 1):.1%} a.a.")
+    if parcela > 0.3 * p["salario"]:
+        estilo.card("✨ Leitura da IA", f"Essa parcela compromete {parcela / p['salario']:.0%} da sua renda. "
+                    "Recomendo até 30%: experimente mais parcelas ou um valor menor.", "alerta")
+    else:
+        estilo.card("✨ Leitura da IA", f"Parcela dentro do saudável ({parcela / p['salario']:.0%} da renda). "
+                    "O dinheiro cai na conta na hora.", "ia")
+    if st.button("Contratar (simulado)", type="primary", width="stretch"):
+        if confirmar_senha("credito", f"Empréstimo de {D.brl(v)} em {n}x de {D.brl(parcela)}."):
+            lancar("Crédito pessoal liberado", v, "Renda")
+            evento("Crédito", "contratado", {"valor": v, "parcelas": n})
+            st.success("Crédito liberado na sua conta.")
+            st.rerun()
+
+
+def tela_seguros() -> None:
+    st.markdown("### ☂️ Seguros")
+    for nome, cob, valor_m, status in [("Seguro de vida", "R$ 100.000 · cobertura 24h", 24.90, "ativo"),
+                                        ("Seguro celular", "Roubo, furto e quebra · franquia 15%", 15.00, "ativo"),
+                                        ("Residencial", "Incêndio, roubo e assistência", 29.90, "disponível")]:
+        selo = estilo.pill("ativo", "verde") if status == "ativo" else estilo.pill("disponível", "azul")
+        st.markdown(f'<div class="sa-card"><div class="titulo">{nome} {selo}</div>'
+                    f'<div class="sub">{cob} · {D.brl(valor_m)}/mês</div></div>', unsafe_allow_html=True)
+    estilo.card("Acionar um seguro", "Sem formulário: descreva o que aconteceu para a Lia e ela abre o sinistro com você.", "ia")
+    if st.button("Falar com a Lia sobre um sinistro", width="stretch"):
+        ir_para("Assistente")
+        st.rerun()
 
 
 # ----------------------------------------------------------------------------- avaliação

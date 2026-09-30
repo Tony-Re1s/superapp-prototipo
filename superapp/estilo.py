@@ -95,29 +95,30 @@ CSS = f"""
     .sa-ola {{ font-size: 1.25rem; color: {AZUL_ESCURO}; padding-top: 6px; }}
     div.stButton > button[kind="secondary"][data-testid] {{ }}
 
-    /* cards de resumo (topo da Início) — são botões pintados como cards */
-    .st-key-card_conta button, .st-key-card_cartao button, .st-key-card_inv button {{
-        height: 104px; border: none; border-radius: 16px; color: white !important;
-        text-align: left; align-items: flex-start; justify-content: flex-start; padding: 12px 12px;
+    /* cards de resumo (topo da Início) — botões pintados como cards, um por linha */
+    [class*="st-key-card_"] button {{
+        height: 74px; border: none; border-radius: 16px; color: white !important;
+        text-align: left; justify-content: flex-start; padding: 10px 16px; margin-bottom: 2px;
         box-shadow: 0 4px 14px rgba(0,0,0,0.12); white-space: normal;
     }}
     .st-key-card_conta button {{ background: linear-gradient(135deg, {LARANJA} 0%, {LARANJA_ESCURO} 100%); }}
     .st-key-card_cartao button {{ background: linear-gradient(135deg, {AZUL} 0%, {AZUL_ESCURO} 100%); }}
     .st-key-card_inv button {{ background: linear-gradient(135deg, #1B8A4A 0%, #0F5F32 100%); }}
-    .st-key-card_conta button:hover, .st-key-card_cartao button:hover, .st-key-card_inv button:hover {{
-        filter: brightness(1.08); color: white !important; border: none;
+    .st-key-card_cred button {{ background: linear-gradient(135deg, #5B3FA6 0%, #3B2670 100%); }}
+    .st-key-card_seg button {{ background: linear-gradient(135deg, #0E7C86 0%, #095760 100%); }}
+    [class*="st-key-card_"] button:hover {{ filter: brightness(1.08); color: white !important; border: none; }}
+    [class*="st-key-card_"] button > div, [class*="st-key-card_"] button > div > span, [class*="st-key-card_"] button [data-testid="stMarkdownContainer"] {{ width: 100%; display: block; }}
+    [class*="st-key-card_"] button p {{
+        color: white !important; margin: 0; display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto;
+        column-gap: 12px; align-items: center; overflow: visible; white-space: normal; text-overflow: clip; line-height: 1.25;
     }}
-    .st-key-card_conta button > div, .st-key-card_cartao button > div, .st-key-card_inv button > div {{ width: 100%; }}
-    .st-key-card_conta button p, .st-key-card_cartao button p, .st-key-card_inv button p {{
-        color: white !important; font-size: 0.72rem; line-height: 1.3; margin: 0; text-transform: none;
-        display: flex; flex-direction: column; align-items: flex-start; overflow: visible; white-space: normal; text-overflow: clip;
+    [class*="st-key-card_"] button em {{
+        grid-column: 1; grid-row: 1; font-style: normal; font-size: 0.66rem; letter-spacing: 0.08em; opacity: 0.9;
     }}
-    .st-key-card_conta button em, .st-key-card_cartao button em, .st-key-card_inv button em {{
-        font-style: normal; font-size: 0.64rem; letter-spacing: 0.08em; opacity: 0.9; display: block;
+    [class*="st-key-card_"] button strong {{
+        grid-column: 2; grid-row: 1 / span 2; font-size: 1.45rem; font-weight: 800; white-space: nowrap; justify-self: end;
     }}
-    .st-key-card_conta button strong, .st-key-card_cartao button strong, .st-key-card_inv button strong {{
-        font-size: 1.25rem; font-weight: 800; white-space: nowrap; display: block; margin: 2px 0;
-    }}
+    [class*="st-key-card_"] button p::after {{ content: ""; }}
 
     /* faixa fina de saldo nas demais telas */
     .sa-faixa {{
@@ -133,9 +134,7 @@ CSS = f"""
     @media (max-width: 640px) {{
         [data-testid="stHorizontalBlock"] {{ flex-wrap: nowrap !important; gap: 8px !important; }}
         [data-testid="stColumn"] {{ min-width: 0 !important; flex: 1 1 0 !important; }}
-        .st-key-card_conta button strong, .st-key-card_cartao button strong, .st-key-card_inv button strong {{ font-size: 0.95rem; }}
-        .st-key-card_conta button p, .st-key-card_cartao button p, .st-key-card_inv button p {{ font-size: 0.62rem; }}
-        .st-key-card_conta button, .st-key-card_cartao button, .st-key-card_inv button {{ padding: 10px 8px; height: 96px; }}
+        [class*="st-key-card_"] button strong {{ font-size: 1.25rem; }}
         div.stButton > button {{ padding-left: 6px; padding-right: 6px; }}
     }}
 

@@ -62,6 +62,8 @@ st.pills("Navegação", opcoes, key="nav", on_change=_navegar, label_visibility=
     "Assistente": telas.tela_assistente,
     "Segurança": telas.tela_seguranca,
     "Avalie": telas.tela_avaliar,
+    "Crédito": telas.tela_credito,
+    "Seguros": telas.tela_seguros,
 }[ss.tela]()
 
 st.divider()
