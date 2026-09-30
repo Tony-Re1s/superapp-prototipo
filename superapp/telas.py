@@ -47,6 +47,10 @@ def iniciar_estado(persona_id: str, nome: str = "") -> None:
     ss.limite_pix_noturno = 1000.0
     ss.modo_viagem = False
     ss.investimentos = [dict(i) for i in D.INVESTIMENTOS[persona_id]]
+    ss.credito = {"pre_aprovado": p["salario"] * 4, "contratos": []}
+    ss.inv_pendente = None
+    ss.credito_pendente = None
+    ss.boleto_pendente = None
     ss.tela = "Início"
     ss.telas_visitadas = {"Início"}
     ss.avaliado = False
@@ -104,6 +108,12 @@ def contexto_ia() -> dict:
         "gastos_categoria": gastos_por_categoria(),
         "cartao_bloqueado": st.session_state.cartao_bloqueado,
         "assistente": ASSISTENTE,
+        "investimentos": st.session_state.investimentos,
+        "credito_disponivel": credito_disponivel(),
+        "divida": divida_total(),
+        "contratos": st.session_state.credito["contratos"],
+        "produtos": st.session_state.produtos,
+        "nome": st.session_state.nome,
     }
 
 
@@ -122,6 +132,26 @@ def fatura_total() -> float:
 
 def investido_total() -> float:
     return sum(i["valor"] for i in st.session_state.investimentos)
+
+
+def credito_disponivel() -> float:
+    c = st.session_state.credito
+    return max(c["pre_aprovado"] - sum(x["saldo_devedor"] for x in c["contratos"]), 0.0)
+
+
+def divida_total() -> float:
+    return sum(x["saldo_devedor"] for x in st.session_state.credito["contratos"])
+
+
+def ativar_produto(chave: str) -> bool:
+    """Liga um produto respeitando o limite de cards. Devolve True se ficou ativo."""
+    prod = st.session_state.produtos
+    if prod.get(chave):
+        return True
+    if sum(1 for v in prod.values() if v) >= MAX_PRODUTOS - 1:
+        return False
+    prod[chave] = True
+    return True
 
 
 def valor(v: float) -> str:
@@ -181,6 +211,10 @@ def tela_entrada() -> None:
 
 
 # ----------------------------------------------------------------------------- cabeçalho, cards e faixa
+def _alternar_produto(chave: str) -> None:
+    st.session_state.produtos[chave] = bool(st.session_state.get(f"prod_{chave}"))
+
+
 def cabecalho() -> None:
     ss = st.session_state
     p = persona()
@@ -201,10 +235,9 @@ def cabecalho() -> None:
             lotado = ativos >= MAX_PRODUTOS - 1  # conta corrente ocupa a 1ª vaga
             for chave, rotulo in PRODUTOS_OPCIONAIS:
                 ligado = ss.produtos.get(chave, False)
-                novo = st.toggle(rotulo, value=ligado, key=f"prod_{chave}", disabled=(lotado and not ligado))
-                if novo != ligado:
-                    ss.produtos[chave] = novo
-                    st.rerun()
+                ss[f"prod_{chave}"] = ligado  # sincroniza o interruptor com o estado (a Lia também liga produtos)
+                st.toggle(rotulo, key=f"prod_{chave}", disabled=(lotado and not ligado),
+                          on_change=_alternar_produto, args=(chave,))
             if st.button("Sair", width="stretch", key="sair"):
                 for k in list(ss.keys()):
                     del ss[k]
@@ -224,7 +257,11 @@ def cards_resumo() -> None:
         tot = investido_total()
         itens.append(("Investimentos", f"+{valor(tot * 0.0085)} este mês", valor(tot), "Investir", "inv"))
     if ss.produtos.get("credito"):
-        itens.append(("Crédito", "Pré-aprovado · a partir de 1,49% a.m.", valor(p["salario"] * 4), "Crédito", "cred"))
+        if ss.credito["contratos"]:
+            prox = ss.credito["contratos"][0]
+            itens.append(("Crédito", f"Saldo devedor · próxima parcela {valor(prox['parcela'])} em 05/10", valor(divida_total()), "Crédito", "cred"))
+        else:
+            itens.append(("Crédito", "Pré-aprovado · a partir de 1,49% a.m.", valor(credito_disponivel()), "Crédito", "cred"))
     if ss.produtos.get("seguros"):
         itens.append(("Seguros", "Vida + celular · próximo débito 05/10", valor(39.90), "Seguros", "seg"))
     for tit, sub, val, destino, cls in itens[:MAX_PRODUTOS]:
@@ -288,7 +325,7 @@ def tela_pix() -> None:
     ss = st.session_state
     p = persona()
     st.markdown("### ⚡ Pix")
-    aba1, aba2, aba3 = st.tabs(["Enviar", "Receber", "Limites"])
+    aba1, aba2, aba3, aba4, aba5 = st.tabs(["Enviar", "Receber", "QR Code", "Copia e Cola", "Limite"])
     contatos = D.CONTATOS_PIX[ss.persona]
 
     with aba1:
@@ -327,17 +364,80 @@ def tela_pix() -> None:
 
     with aba2:
         st.markdown(f'<div class="sa-card"><div class="titulo">Sua chave Pix</div><div class="sub">{p["chave_pix"]}</div></div>', unsafe_allow_html=True)
-        v = st.number_input("Gerar cobrança (R$)", min_value=0.0, step=10.0, format="%.2f", key="pix_cobranca")
-        if v > 0:
-            st.code(f"00020126580014BR.GOV.BCB.PIX0136{uuid.uuid4()}5204000053039865406{v:.2f}5802BR5913SUPERAPP FICT6009SAO PAULO", language="text")
-            st.caption("Código Pix copia-e-cola fictício.")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("📋 Copiar chave", width="stretch"):
+                st.toast("Chave copiada.")
+        with c2:
+            if st.button("📤 Compartilhar", width="stretch"):
+                st.toast("Compartilhado (simulado).")
+        st.caption("Outras chaves: CPF e chave aleatória. Para receber com valor definido, use a aba QR Code.")
 
     with aba3:
+        st.caption("Gere um QR Code para receber. Quem pagar já vê o valor e a descrição.")
+        v = st.number_input("Valor (R$) — deixe 0 para o pagador escolher", min_value=0.0, step=10.0, format="%.2f", key="qr_valor")
+        desc = st.text_input("Descrição (opcional)", placeholder="Ex.: rateio do jantar", key="qr_desc")
+        codigo = _codigo_pix(p["chave_pix"], v, desc)
+        st.image(_qr(codigo), width=220)
+        st.code(codigo, language="text")
+        st.caption("QR fictício, apenas para o protótipo.")
+
+    with aba4:
+        st.caption("Cole um código Pix copia e cola para pagar.")
+        cod = st.text_area("Código Pix", placeholder="00020126…", height=90, key="pix_cola", label_visibility="collapsed")
+        if cod.strip():
+            v_cola, quem = _ler_codigo_pix(cod)
+            estilo.card("Pagamento identificado", f"Para: {quem} · Valor {D.brl(v_cola)}")
+            estilo.card("🛡️ Verificação antifraude", "Recebedor sem denúncias e valor coerente com o seu histórico.", "ok")
+            if v_cola > ss.saldo:
+                st.error("Saldo insuficiente.")
+            elif st.button(f"Pagar {D.brl(v_cola)}", type="primary", width="stretch", key="pagar_cola"):
+                lancar(f"Pix copia e cola — {quem}", -v_cola, "Transferência")
+                evento("Pix", "copia_cola", {"valor": v_cola})
+                st.success(f"Pix de {D.brl(v_cola)} pago para {quem}.")
+
+    with aba5:
         st.caption("Limites que você mesmo controla — mudanças reduzem o dano em caso de golpe.")
         ss.limite_pix_noturno = st.slider("Limite Pix noturno (20h–6h)", 0, 5000, int(ss.limite_pix_noturno), 100, format="R$ %d")
         st.slider("Limite Pix diário", 0, 20000, 5000, 500, format="R$ %d", key="lim_diario")
         st.toggle("Exigir senha em todo Pix para contatos novos", value=True)
         st.toggle("Avisar meu contato de confiança em Pix acima do padrão", value=p["prefere_humano"])
+
+
+def _norm_txt(t: str) -> str:
+    import unicodedata
+    t = unicodedata.normalize("NFKD", str(t).lower())
+    return "".join(c for c in t if not unicodedata.combining(c))
+
+
+def _codigo_pix(chave: str, valor: float, desc: str) -> str:
+    v = f"5406{valor:.2f}" if valor > 0 else ""
+    d = f"62{len(desc) + 4:02d}05{len(desc):02d}{desc}" if desc else ""
+    return f"00020126{len(chave) + 22:02d}0014BR.GOV.BCB.PIX01{len(chave):02d}{chave}52040000530398{v}5802BR5908SUPERAPP6009SAO PAULO{d}6304ABCD"
+
+
+def _ler_codigo_pix(cod: str) -> tuple[float, str]:
+    import re
+    m = re.search(r"5406(\d+\.\d{2})", cod.replace(",", "."))
+    if m:
+        v = float(m.group(1))
+    else:
+        v = round(20 + (sum(ord(c) for c in cod) % 480), 2)
+    quem = "Loja Fictícia ME"
+    m2 = re.search(r"59\d{2}([A-Za-z ]{3,25})", cod)
+    if m2:
+        quem = m2.group(1).strip()
+    return v, quem
+
+
+@st.cache_data(show_spinner=False)
+def _qr(texto: str):
+    import io
+    import qrcode
+    img = qrcode.make(texto, box_size=6, border=2)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
 
 
 # ----------------------------------------------------------------------------- cartão
@@ -434,7 +534,8 @@ def tela_pagar() -> None:
             st.caption("Pagas nesta sessão: " + ", ".join(c["descricao"] for c in pagas))
         st.toggle("Débito automático para contas recorrentes", value=False, help="A IA identifica contas que se repetem todo mês e sugere colocar em débito automático.")
     with aba2:
-        cod = st.text_input("Código de barras ou linha digitável", placeholder="Cole ou digite (protótipo aceita qualquer coisa)")
+        cod = st.text_input("Código de barras ou linha digitável", value=ss.get("boleto_pendente") or "",
+                            placeholder="Cole ou digite (protótipo aceita qualquer coisa)")
         if cod:
             v = round(37.0 + (sum(ord(ch) for ch in cod) % 900), 2)
             estilo.card("Boleto identificado", f"Beneficiário: Cia. Fictícia de Serviços · Valor {D.brl(v)} · Vencimento {D.data_br(D.HOJE + timedelta(days=3))}")
@@ -444,6 +545,7 @@ def tela_pagar() -> None:
                     st.error("Saldo insuficiente.")
                 else:
                     lancar("Boleto — Cia. Fictícia de Serviços", -v, "Compras")
+                    ss.boleto_pendente = None
                     evento("Pagar", "boleto", {"valor": v})
                     st.success("Boleto pago.")
     with aba3:
@@ -513,9 +615,20 @@ def tela_investir() -> None:
                     " parados na conta acima do que costuma usar até o próximo salário. No CDB 110% CDI, renderiam cerca de "
                     + D.brl(max(ss.saldo - 800, 0) * 0.009) + " ao mês.", "ia")
     with aba2:
-        prod = st.selectbox("Produto", [i["produto"] for i in ss.investimentos])
-        op = st.radio("Operação", ["Aplicar", "Resgatar"], horizontal=True)
-        v = st.number_input("Valor (R$)", min_value=0.0, step=50.0, format="%.2f", key="inv_valor")
+        pend = ss.inv_pendente or {}
+        nomes = [i["produto"] for i in ss.investimentos]
+        idx = 0
+        if pend.get("produto"):
+            alvo = _norm_txt(pend["produto"])
+            for k, n in enumerate(nomes):
+                if alvo in _norm_txt(n) or _norm_txt(n).split(" ")[0] in alvo:
+                    idx = k
+                    break
+        if pend:
+            estilo.card("✨ Preparado pela Lia", f"{pend.get('op', 'Aplicar')} {D.brl(pend.get('valor', 0))} em {nomes[idx]}. Confira e confirme.", "ia")
+        prod = st.selectbox("Produto", nomes, index=idx)
+        op = st.radio("Operação", ["Aplicar", "Resgatar"], horizontal=True, index=0 if pend.get("op", "Aplicar") == "Aplicar" else 1)
+        v = st.number_input("Valor (R$)", min_value=0.0, step=50.0, value=float(pend.get("valor", 0.0)), format="%.2f", key="inv_valor")
         if v > 0 and st.button(f"{op} {D.brl(v)}", type="primary", width="stretch"):
             item = next(i for i in ss.investimentos if i["produto"] == prod)
             if op == "Aplicar":
@@ -523,6 +636,7 @@ def tela_investir() -> None:
                     st.error("Saldo insuficiente.")
                 else:
                     item["valor"] += v
+                    ss.inv_pendente = None
                     lancar(f"Aplicação — {prod}", -v, "Investimentos")
                     evento("Investir", "aplicar", {"valor": v})
                     st.success("Aplicação realizada.")
@@ -532,6 +646,7 @@ def tela_investir() -> None:
                     st.error("Valor maior que o saldo aplicado.")
                 else:
                     item["valor"] -= v
+                    ss.inv_pendente = None
                     lancar(f"Resgate — {prod}", v, "Investimentos")
                     evento("Investir", "resgatar", {"valor": v})
                     st.success("Resgate solicitado (cai na conta conforme a liquidez do produto).")
@@ -640,6 +755,26 @@ def _executar_acao(acao: dict) -> str | None:
         return "Gastos"
     if t == "ver_investimentos":
         return "Investir"
+    if t in ("aplicar", "resgatar"):
+        ss.inv_pendente = {"op": "Aplicar" if t == "aplicar" else "Resgatar", "produto": acao.get("produto"),
+                           "valor": float(acao.get("valor") or 0)}
+        return "Investir"
+    if t == "contratar_credito":
+        ativar_produto("credito")
+        ss.credito_pendente = {"valor": float(acao.get("valor") or 0), "parcelas": int(acao.get("parcelas") or 12)}
+        return "Crédito"
+    if t == "ver_credito":
+        ativar_produto("credito")
+        return "Crédito"
+    if t == "cartao_virtual":
+        ss.cartao_virtual = f"5312 {uuid.uuid4().int % 10000:04d} {uuid.uuid4().int % 10000:04d} {uuid.uuid4().int % 10000:04d}"
+        return None
+    if t == "pagar_boleto":
+        ss.boleto_pendente = str(acao.get("codigo") or "")
+        return "Pagar"
+    if t == "ativar_produto":
+        ativar_produto(str(acao.get("produto") or ""))
+        return None
     if t == "escalar_humano":
         ss.fila_humano = {"motivo": acao.get("motivo", "atendimento"), "posicao": 2 if persona()["prefere_humano"] else 5,
                           "espera": "3 min" if persona()["prefere_humano"] else "8 min"}
@@ -700,13 +835,18 @@ def tela_assistente() -> None:
             espaco = st.empty()
             espaco.caption(f"{ASSISTENTE} está digitando…")
             r = ia.responder(msg, ss.chat, contexto_ia())
+            destino = _executar_acao(r.get("acao", {}))
+            tipo = r.get("acao", {}).get("tipo")
+            if tipo == "ativar_produto" and not ss.produtos.get(str(r["acao"].get("produto", ""))):
+                r["resposta"] = (f"Você já tem {MAX_PRODUTOS} produtos na tela inicial, que é o máximo. Se quiser incluir este, "
+                                 "desative outro no seu perfil (ícone 👤) que eu ativo na hora.")
+            if tipo == "cartao_virtual" and ss.cartao_virtual:
+                r["resposta"] += f"\n\n**{ss.cartao_virtual}** · CVV 731 · válido por 24h para compras online."
             espaco.empty()
             st.write_stream(_digitando(r["resposta"]))
         ss.chat.append({"role": "user", "content": msg})
         ss.chat.append({"role": "assistant", "content": r["resposta"]})
-        destino = _executar_acao(r.get("acao", {}))
-        evento("Assistente", "mensagem", {"fonte": r["fonte"], "acao": r.get("acao", {}).get("tipo"),
-                                           "escalar": r["escalar"], "uso": r.get("uso")})
+        evento("Assistente", "mensagem", {"fonte": r["fonte"], "acao": tipo, "escalar": r["escalar"], "uso": r.get("uso")})
         if destino:
             import time
             st.info(f"Abrindo {destino} para você…")
@@ -772,11 +912,43 @@ def tela_credito() -> None:
     ss = st.session_state
     p = persona()
     st.markdown("### 🏦 Crédito pessoal")
-    limite = p["salario"] * 4
-    estilo.card("Pré-aprovado para você", f"Até {valor(limite)} · a partir de 1,49% a.m. · sem consulta adicional. "
+    disp = credito_disponivel()
+    contratos = ss.credito["contratos"]
+    pend = ss.credito_pendente or {}
+
+    if contratos:
+        st.markdown("#### Seus contratos")
+        for k, c in enumerate(contratos):
+            pagas = c["pagas"]
+            selo = estilo.pill(f"{pagas}/{c['parcelas']} pagas", "azul")
+            st.markdown(f'<div class="sa-card"><div class="titulo">Empréstimo de {D.brl(c["valor"])} {selo}</div>'
+                        f'<div class="sub">Parcela {D.brl(c["parcela"])} · saldo devedor {D.brl(c["saldo_devedor"])} · próxima em 05/10/2026</div></div>',
+                        unsafe_allow_html=True)
+            st.progress(pagas / c["parcelas"], text=f"{pagas / c['parcelas']:.0%} quitado")
+            if st.button("Antecipar parcela (com desconto de juros)", key=f"antecipa_{k}", width="stretch"):
+                if c["parcela"] > ss.saldo:
+                    st.error("Saldo insuficiente.")
+                else:
+                    c["pagas"] += 1
+                    c["saldo_devedor"] = round(max(c["saldo_devedor"] - c["parcela"] * 0.97, 0), 2)
+                    lancar("Antecipação de parcela — crédito", -round(c["parcela"] * 0.97, 2), "Crédito")
+                    st.rerun()
+        st.divider()
+
+    if disp < 500:
+        estilo.card("Novo crédito em reanálise", "Seu limite pré-aprovado está comprometido com o contrato atual. "
+                    "Conforme as parcelas forem pagas, o limite volta a ficar disponível.", "alerta")
+        return
+
+    estilo.card("Pré-aprovado para você", f"Até {valor(disp)} · a partir de 1,49% a.m. · sem consulta adicional. "
                 "Só é ofertado aqui porque você ativou o produto — não aparece em notificação.", "ok")
-    v = st.slider("Quanto você precisa?", 500.0, float(limite), min(3000.0, float(limite)), 100.0, format="R$ %.0f")
-    n = st.select_slider("Em quantas parcelas?", options=[6, 12, 18, 24, 36, 48], value=12)
+    if pend:
+        estilo.card("✨ Preparado pela Lia", f"Empréstimo de {D.brl(pend['valor'])} em {pend['parcelas']}x. Confira e confirme.", "ia")
+    v_ini = float(min(max(pend.get("valor") or 3000.0, 500.0), disp))
+    v = st.slider("Quanto você precisa?", 500.0, float(disp), v_ini, 100.0, format="R$ %.0f")
+    opcoes_n = [6, 12, 18, 24, 36, 48]
+    n_ini = pend.get("parcelas", 12) if pend.get("parcelas", 12) in opcoes_n else 12
+    n = st.select_slider("Em quantas parcelas?", options=opcoes_n, value=n_ini)
     i = 0.0149
     parcela = v * i / (1 - (1 + i) ** -n)
     c1, c2, c3 = st.columns(3)
@@ -789,11 +961,16 @@ def tela_credito() -> None:
     else:
         estilo.card("✨ Leitura da IA", f"Parcela dentro do saudável ({parcela / p['salario']:.0%} da renda). "
                     "O dinheiro cai na conta na hora.", "ia")
-    if st.button("Contratar (simulado)", type="primary", width="stretch"):
+    if ss.get("credito_confirmando") or st.button("Contratar", type="primary", width="stretch"):
+        ss.credito_confirmando = True
         if confirmar_senha("credito", f"Empréstimo de {D.brl(v)} em {n}x de {D.brl(parcela)}."):
+            contratos.append({"valor": v, "parcelas": n, "parcela": round(parcela, 2), "pagas": 0,
+                              "saldo_devedor": round(parcela * n, 2)})
             lancar("Crédito pessoal liberado", v, "Renda")
+            ss.credito_pendente = None
+            ss.credito_confirmando = False
             evento("Crédito", "contratado", {"valor": v, "parcelas": n})
-            st.success("Crédito liberado na sua conta.")
+            st.success("Crédito liberado na sua conta. O contrato já aparece no seu card de Crédito.")
             st.rerun()
 
 

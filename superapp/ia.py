@@ -59,6 +59,10 @@ def _contexto_texto(ctx: dict) -> str:
     )
     contatos = "\n".join(f"- {c['nome']} ({c['banco']})" for c in ctx["contatos"])
     gastos = "\n".join(f"- {k}: {D.brl(v)}" for k, v in ctx["gastos_categoria"].items())
+    invs = "\n".join(f"- {i['produto']} ({i['tipo']}): {D.brl(i['valor'])}, rentabilidade 12m {i['rent_12m']:.1%}, liquidez {i['liquidez']}"
+                     for i in ctx.get("investimentos", [])) or "- nenhum"
+    contratos = "".join(f"; contrato de {D.brl(c['valor'])} em {c['parcelas']}x de {D.brl(c['parcela'])}" for c in ctx.get("contratos", []))
+    prods = ", ".join(k for k, v in ctx.get("produtos", {}).items() if v) or "só conta corrente"
     return f"""
 CLIENTE: {p['nome']}, {p['idade']} anos. Cliente há {p['tempo_cliente']}. {p['descricao']}
 Prefere atendimento humano em temas sensíveis: {"sim" if p['prefere_humano'] else "não, prefere resolver sozinho"}.
@@ -73,6 +77,11 @@ CONTATOS PIX FAVORITOS:
 GASTOS DO MÊS POR CATEGORIA (conta corrente):
 {gastos}
 LIMITE DE PIX SEM CONFIRMAÇÃO REFORÇADA: {D.brl(p['pix_padrao_max'])} (acima disso o app pede senha).
+INVESTIMENTOS (produtos que o cliente já tem; aplicar/resgatar usa um destes nomes):
+{invs}
+CRÉDITO PESSOAL: pré-aprovado disponível {D.brl(ctx.get('credito_disponivel', 0))}, a partir de 1,49% a.m., parcelas de 6 a 48x.
+Dívida atual: {D.brl(ctx.get('divida', 0))}{contratos}.
+PRODUTOS ATIVOS NO APP: {prods}. Produtos que podem ser ativados: cartao, investimentos, credito, seguros.
 """
 
 
@@ -90,11 +99,23 @@ Tipos de ação permitidos:
 - {"tipo": "pix", "valor": <número>, "destinatario": "<nome do contato favorito ou chave>"}
 - {"tipo": "pagar_conta", "descricao": "<nome da conta como aparece no contexto>"}
 - {"tipo": "bloquear_cartao"} / {"tipo": "desbloquear_cartao"}
-- {"tipo": "ver_fatura"} / {"tipo": "ver_extrato"} / {"tipo": "ver_gastos"} / {"tipo": "ver_investimentos"}
+- {"tipo": "ver_fatura"} / {"tipo": "ver_extrato"} / {"tipo": "ver_gastos"} / {"tipo": "ver_investimentos"} / {"tipo": "ver_credito"}
+- {"tipo": "aplicar", "produto": "<nome do investimento do contexto>", "valor": <número>}
+- {"tipo": "resgatar", "produto": "<nome do investimento do contexto>", "valor": <número>}
+- {"tipo": "contratar_credito", "valor": <número>, "parcelas": <6|12|18|24|36|48>}
+- {"tipo": "cartao_virtual"}
+- {"tipo": "pagar_boleto", "codigo": "<código de barras/linha digitável que o cliente enviou>"}
+- {"tipo": "ativar_produto", "produto": "<cartao|investimentos|credito|seguros>"}
 - {"tipo": "escalar_humano", "motivo": "<motivo curto>"}
 
 Regras:
 - Se faltar um dado essencial para a ação (ex.: valor do Pix), pergunte e use "nenhuma".
+- Investir sem dizer o produto: apresente em uma frase as opções do contexto (nome, rentabilidade, liquidez) e pergunte
+  qual; se disser "o mais seguro/líquido", escolha o CDB. Com produto e valor, use "aplicar" — a pessoa confirma na tela.
+- Empréstimo: mostre o pré-aprovado disponível; com valor (e parcelas, ou 12 por padrão) use "contratar_credito".
+  Se a dívida atual já comprometer o pré-aprovado, explique que fica em reanálise — nunca escale por isso.
+- NUNCA use "escalar_humano" só porque não há ação exata para o pedido: oriente e abra a tela mais próxima (ver_*).
+  Escale apenas por frustração, pedido explícito de pessoa, ou tema de segurança.
 - Se o cliente demonstrar frustração, repetir o problema, ou pedir uma pessoa: acolha, diga que vai chamar o Rafael
   da equipe e que ele já vê a conversa (não precisa repetir nada), e use "escalar_humano".
 - Se o tema for golpe, fraude, compra não reconhecida, celular perdido ou senha vazada: primeiro proteja
@@ -135,11 +156,13 @@ def _chamar_api(mensagem: str, historico: list[dict], ctx: dict) -> dict | None:
 
 
 def _numero(texto: str) -> float | None:
-    m = re.search(r"(\d+(?:[.,]\d{1,2})?)", texto.replace(".", "").replace(",", "."))
+    t = texto.replace(".", "").replace(",", ".")
+    m = re.search(r"(\d+(?:\.\d{1,2})?)\s*(mil)?", t)
     if not m:
         return None
     try:
-        return float(m.group(1))
+        v = float(m.group(1))
+        return v * 1000 if m.group(2) else v
     except ValueError:
         return None
 
@@ -183,6 +206,11 @@ def _regras(mensagem: str, ctx: dict) -> dict:
         return {"resposta": f"Seu limite total é {D.brl(p['limite_cartao'])}; disponível agora: "
                 f"{D.brl(p['limite_cartao'] - p['fatura_atual'])}.", "acao": {"tipo": "nenhuma"}}
 
+    mb = re.search(r"(\d[\d .]{30,60}\d)", mensagem)
+    if mb and ("boleto" in m or "codigo" in m or "barras" in m or len(re.sub(r"\D", "", mb.group(1))) >= 44):
+        return {"resposta": "Identifiquei o boleto. Abri o pagamento com o código preenchido e a verificação antifraude feita — é só confirmar.",
+                "acao": {"tipo": "pagar_boleto", "codigo": mb.group(1)}}
+
     if re.search(r"\b(conta|boleto|luz|agua|energia|internet|condominio|aluguel|mensalidade)\b", m) and \
             re.search(r"\b(paga|pagar|vence|vencid|atras|pendente|aberta)\w*", m):
         pend = [c for c in ctx["contas"] if c["status"] != "paga"]
@@ -204,9 +232,47 @@ def _regras(mensagem: str, ctx: dict) -> dict:
         return {"resposta": f"Neste mês seus maiores gastos foram: {txt}. Abri o controle de gastos para você.",
                 "acao": {"tipo": "ver_gastos"}}
 
-    if "invest" in m or "render" in m or "aplic" in m:
+    if re.search(r"\b(emprest|credito|financi)\w*", m) or (re.search(r"\b(preciso|precisando|pega|pegar)\b", m) and (_numero(m) or 0) >= 500 and "pix" not in m and "invest" not in m and "aplic" not in m):
+        disp = ctx.get("credito_disponivel", 0)
+        if disp < 500:
+            return {"resposta": f"Seu pré-aprovado está comprometido com o contrato atual (dívida de {D.brl(ctx.get('divida', 0))}). "
+                    "Um novo crédito fica em reanálise conforme as parcelas forem pagas.", "acao": {"tipo": "ver_credito"}}
+        valor = _numero(m)
+        mp = re.search(r"(\d+)\s*(x|vezes|parcelas)", m)
+        parcelas = int(mp.group(1)) if mp else 12
+        if valor and valor >= 500:
+            return {"resposta": f"Preparei um empréstimo de {D.brl(valor)} em {parcelas}x, dentro do seu pré-aprovado de {D.brl(disp)}. "
+                    "Confira a parcela e confirme com sua senha.", "acao": {"tipo": "contratar_credito", "valor": valor, "parcelas": parcelas}}
+        return {"resposta": f"Você tem {D.brl(disp)} pré-aprovados, a partir de 1,49% ao mês, em até 48x. "
+                "Me diga o valor e em quantas vezes (ex.: \"3 mil em 12x\") que eu preparo.", "acao": {"tipo": "ver_credito"}}
+
+    if "invest" in m or "render" in m or "aplic" in m or "resgat" in m:
+        invs = ctx.get("investimentos", [])
+        valor = _numero(m)
+        op = "resgatar" if "resgat" in m else "aplicar"
+        alvo = None
+        for i in invs:
+            chave = _norm(i["produto"]).split(" ")[0]
+            if chave in m or (("segur" in m or "liquid" in m) and "cdb" in _norm(i["produto"])):
+                alvo = i["produto"]
+                break
+        if valor and alvo:
+            return {"resposta": f"Preparei {'um resgate' if op == 'resgatar' else 'uma aplicação'} de {D.brl(valor)} em {alvo}. Confira e confirme.",
+                    "acao": {"tipo": op, "produto": alvo, "valor": valor}}
+        if "aplic" in m or "resgat" in m or "quero invest" in m:
+            opcoes = "; ".join(f"{i['produto']} ({i['rent_12m']:.1%} a.a., liquidez {i['liquidez']})" for i in invs)
+            return {"resposta": f"Suas opções: {opcoes}. Me diga o produto e o valor (ex.: \"aplica 500 no CDB\").",
+                    "acao": {"tipo": "nenhuma"}}
         return {"resposta": f"Seu patrimônio investido é {D.brl(p['patrimonio_inv'])}. Abri a tela de investimentos.",
                 "acao": {"tipo": "ver_investimentos"}}
+
+    if "virtual" in m and "cart" in m:
+        return {"resposta": "Criei um cartão virtual para você, válido por 24h para compras online. Os dados estão logo abaixo.",
+                "acao": {"tipo": "cartao_virtual"}}
+
+    if "seguro" in m and ("quero" in m or "ativar" in m or "contratar" in m):
+        return {"resposta": "Ativei Seguros no seu app. Você já tem vida e celular disponíveis; veja no card da tela inicial.",
+                "acao": {"tipo": "ativar_produto", "produto": "seguros"}}
 
     if "extrato" in m or "movimenta" in m:
         return {"resposta": "Abri seu extrato. Você pode filtrar por período e tipo.", "acao": {"tipo": "ver_extrato"}}
