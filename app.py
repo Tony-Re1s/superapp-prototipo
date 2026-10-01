@@ -15,9 +15,17 @@ if st.query_params.get("admin") == "1":
     telas.tela_resultados()
     st.stop()
 
+# Login automático: entra direto com o perfil padrão (nome "Ana"), sem passar pela tela de entrada.
+# Para voltar a exibir a tela de login, troque para False.
+LOGIN_AUTOMATICO = True
+
 if "persona" not in st.session_state:
-    telas.tela_entrada()
-    st.stop()
+    if LOGIN_AUTOMATICO:
+        telas.iniciar_estado("padrao")
+        telas.evento("Entrada", "login_automatico", {})
+    else:
+        telas.tela_entrada()
+        st.stop()
 
 ss = st.session_state
 
