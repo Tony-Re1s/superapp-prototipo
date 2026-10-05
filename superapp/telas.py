@@ -1,6 +1,7 @@
 """Telas do protótipo. Cada função `tela_*` desenha uma tela completa."""
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import date, timedelta
 
@@ -19,6 +20,12 @@ ICONES = {"Início": "🏠", "Pix": "⚡", "Cartão": "💳", "Pagar": "🧾", "
 # ----------------------------------------------------------------------------- estado
 ASSISTENTE = "Lia"
 MAX_PRODUTOS = 4  # cards na tela inicial, incluindo a conta corrente
+# compras no cartão que o app pede para a pessoa autorizar (alertas da Início)
+COMPRAS_PARA_AUTORIZAR = [
+    {"id": "amz", "estab": "Amazon Marketplace", "valor": 349.90, "detalhe": "online · agora"},
+    {"id": "shell", "estab": "Posto Shell", "valor": 212.40,
+     "detalhe": "Curitiba/PR, fora da sua cidade"},
+]
 PRODUTOS_OPCIONAIS = [("cartao", "Cartão de crédito"), ("investimentos", "Investimentos"),
                       ("credito", "Crédito pessoal"), ("seguros", "Seguros")]
 
@@ -60,6 +67,7 @@ def iniciar_estado(persona_id: str, nome: str = "") -> None:
     ss.telas_visitadas = {"Início"}
     ss.avaliado = False
     ss.pix_confirmados = 0
+    ss.compras_pendentes = [dict(c) for c in COMPRAS_PARA_AUTORIZAR]
 
 
 def persona() -> dict:
@@ -294,6 +302,32 @@ def faixa_saldo() -> None:
                 unsafe_allow_html=True)
 
 
+# ----------------------------------------------------------------------------- linha de alerta com ação
+def linha_acao(chave: str, titulo: str, sub: str, botoes: list[tuple[str, str, str]], tom: str = "") -> str | None:
+    """Box de alerta em uma linha: texto à esquerda e botões pequenos à direita, sempre no mesmo esquadro.
+    botoes: (rótulo, tipo 'primary'/'secondary', id). Devolve o id do botão tocado."""
+    tocado = None
+    with st.container(key=f"acao_{chave}", horizontal=True, vertical_alignment="center", wrap=False, gap="small"):
+        st.markdown(f'<div class="sa-acao-txt {tom}"><div class="titulo">{titulo}</div><div class="sub">{sub}</div></div>',
+                    unsafe_allow_html=True, width="stretch")
+        for rotulo, tipo, bid in botoes:
+            if st.button(rotulo, key=f"bt_{chave}_{bid}", type=tipo, width="content"):
+                tocado = bid
+    return tocado
+
+
+def pagar_rapido(c: dict) -> None:
+    """Paga a conta direto da Início, sem abrir a tela de pagamentos."""
+    ss = st.session_state
+    if c["valor"] > ss.saldo:
+        st.toast("Saldo insuficiente para pagar esta conta.")
+        return
+    lancar(f"Pagamento — {c['descricao']}", -c["valor"], "Moradia")
+    c["status"] = "paga"
+    evento("Início", "pago_rapido", {"desc": c["descricao"], "valor": c["valor"]})
+    st.toast(f"✅ {c['descricao']} paga ({D.brl(c['valor'])}). Comprovante em Extrato.")
+
+
 # ----------------------------------------------------------------------------- início
 def tela_inicio() -> None:
     ss = st.session_state
@@ -304,25 +338,41 @@ def tela_inicio() -> None:
     prox = [c for c in ss.contas if c["status"] == "aberta" and (c["vencimento"] - D.HOJE).days <= 7]
     if vencidas:
         c = vencidas[0]
-        with st.container(key="venc_box"):
-            col_a, col_b = st.columns([3, 1], vertical_alignment="center")
-            with col_a:
-                st.markdown(f'<div class="sa-venc"><div class="titulo">⚠️ {c["descricao"]} · vencida</div>'
-                            f'<div class="sub">{D.brl(c["valor"])} · venceu em {D.data_br(c["vencimento"])[:5]}</div></div>',
-                            unsafe_allow_html=True)
-            with col_b:
-                if st.button("Pagar", type="primary", width="content", key="pagar_vencida"):
-                    ss.pagamento_pendente = c["descricao"]
-                    ir_para("Pagar")
-                    st.rerun()
+        if linha_acao("vencida", f"⚠️ {c['descricao']} · vencida",
+                      f"{D.brl(c['valor'])} · venceu em {D.data_br(c['vencimento'])[:5]}",
+                      [("Pagar", "primary", "pagar")], "cinza") == "pagar":
+            pagar_rapido(c)
+            st.rerun()
 
     lia_inicio()
-    st.markdown('<div class="sa-dobra">Alertas e movimentações ↓</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sa-dobra"></div>', unsafe_allow_html=True)
 
-    if prox:
-        total = sum(c["valor"] for c in prox)
-        estilo.card("📅 Próximos 7 dias", f"{len(prox)} conta(s) somando {D.brl(total)}: "
-                    + ", ".join(f"{c['descricao']} ({D.data_br(c['vencimento'])})" for c in prox), "alerta")
+    # 1) compras no cartão aguardando autorização
+    if ss.compras_pendentes:
+        st.markdown('<div class="sa-secao">🔔 Compras para autorizar</div>', unsafe_allow_html=True)
+    for compra in list(ss.compras_pendentes):
+        r = linha_acao(f"compra_{compra['id']}", f"💳 {compra['estab']}",
+                       f"Autorizar {valor(compra['valor'])} · {compra['detalhe']}",
+                       [("Aprovar", "primary", "ok"), ("Recusar", "secondary", "nao")], "alerta")
+        if r:
+            ss.compras_pendentes.remove(compra)
+            evento("Início", "compra_" + ("aprovada" if r == "ok" else "recusada"), {"estab": compra["estab"], "valor": compra["valor"]})
+            st.toast(f"Compra em {compra['estab']} aprovada." if r == "ok" else
+                     f"Compra em {compra['estab']} recusada. Se não foi você, bloqueie o cartão em Segurança.")
+            st.rerun()
+
+    # 2) próximos vencimentos, cada um com pagamento rápido
+    abertas = sorted([c for c in ss.contas if c["status"] == "aberta"], key=lambda c: c["vencimento"])
+    if abertas:
+        st.markdown('<div class="sa-secao">📅 Próximos vencimentos</div>', unsafe_allow_html=True)
+    for c in abertas:
+        dias = (c["vencimento"] - D.HOJE).days
+        quando = "vence hoje" if dias == 0 else ("vence amanhã" if dias == 1 else f"vence em {dias} dias")
+        if linha_acao("venc_" + re.sub(r'[^a-z0-9]+', '_', _norm_txt(c['descricao'])), c["descricao"],
+                      f"{valor(c['valor'])} · {D.data_br(c['vencimento'])[:5]} · {quando}",
+                      [("Pagar", "primary", "pagar")]) == "pagar":
+            pagar_rapido(c)
+            st.rerun()
 
     g = gastos_por_categoria()
     if g:

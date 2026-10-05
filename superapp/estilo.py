@@ -123,18 +123,24 @@ CSS = f"""
     /* cards mais próximos entre si (o Streamlit põe 1rem entre elementos) */
     [class*="st-key-card_"] {{ margin-bottom: -8px; }}
 
-    /* conta vencida: box cinza com o botão Pagar (laranja, pequeno) dentro */
-    .st-key-venc_box {{
-        background: #ECEDEF; border: 1px solid #DADCE0; border-left: 5px solid #8A8F98; border-radius: 14px;
-        padding: 8px 10px 8px 12px; margin-top: 4px;
+    /* linhas de alerta com ação (vencida, autorizações, vencimentos): mesmo esquadro e alinhamento */
+    [class*="st-key-acao_"] {{
+        background: white; border: 1px solid #E6E8EE; border-left: 5px solid #C9CDD4; border-radius: 14px;
+        padding: 8px 10px 8px 12px; margin-bottom: -6px; min-height: 56px; box-sizing: border-box;
     }}
-    .st-key-venc_box [data-testid="stMarkdownContainer"] p, .st-key-venc_box .stMarkdown {{ margin-bottom: 0; }}
-    .st-key-venc_box [data-testid="stColumn"]:last-child [data-testid="stVerticalBlock"] {{ align-items: flex-end; }}
-    .st-key-venc_box .st-key-pagar_vencida {{ width: auto !important; margin-left: auto; }}
-    .sa-venc .titulo {{ font-weight: 700; color: #4A4F57; font-size: 0.92rem; }}
-    .sa-venc .sub {{ color: #6B717B; font-size: 0.8rem; line-height: 1.3; }}
-    .sa-venc .titulo {{ line-height: 1.3; }}
-    .st-key-pagar_vencida button {{ min-height: 32px; height: 32px; padding: 0 18px; font-size: 0.85rem; border-radius: 999px; }}
+    .st-key-acao_vencida {{ background: #ECEDEF; border-color: #DADCE0; border-left-color: #8A8F98; margin-top: 4px; }}
+    [class*="st-key-acao_compra_"] {{ background: #FFF6EE; border-color: #FBDDC2; border-left-color: {LARANJA}; }}
+    [class*="st-key-acao_"] [data-testid="stMarkdownContainer"], [class*="st-key-acao_"] .stMarkdown {{ margin: 0 !important; }}
+    [class*="st-key-acao_"] [data-testid="stElementContainer"] {{ margin: 0 !important; }}
+    .sa-acao-txt {{ min-width: 0; line-height: 1.3; }}
+    .sa-acao-txt .titulo {{ font-weight: 700; color: {AZUL_ESCURO}; font-size: 0.9rem; }}
+    .sa-acao-txt .sub {{ color: #6B717B; font-size: 0.78rem; }}
+    .sa-acao-txt.cinza .titulo {{ color: #4A4F57; }}
+    [class*="st-key-acao_"] button {{
+        min-height: 32px; height: 32px; padding: 0 14px; font-size: 0.82rem; border-radius: 999px !important; white-space: nowrap;
+    }}
+    [class*="st-key-acao_"] button[kind="secondary"] {{ background: white; border: 1.5px solid #B9C3D6; color: {AZUL_ESCURO}; }}
+    .sa-secao {{ color: {AZUL_ESCURO}; font-weight: 700; font-size: 0.95rem; margin: 10px 0 4px 2px; }}
 
     /* Lia embutida na Início: fundo sutil e borda pontilhada separam o chat dos menus */
     .st-key-lia_box {{
