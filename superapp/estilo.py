@@ -97,8 +97,8 @@ CSS = f"""
 
     /* cards de resumo (topo da Início) — botões pintados como cards, um por linha */
     [class*="st-key-card_"] button {{
-        height: 74px; border: none; border-radius: 16px; color: white !important;
-        text-align: left; justify-content: flex-start; padding: 10px 16px; margin-bottom: 2px;
+        height: 58px; min-height: 58px; border: none; border-radius: 14px; color: white !important;
+        text-align: left; justify-content: flex-start; padding: 4px 16px; margin-bottom: 0;
         box-shadow: 0 4px 14px rgba(0,0,0,0.12); white-space: normal;
     }}
     .st-key-card_conta button {{ background: linear-gradient(135deg, {LARANJA} 0%, {LARANJA_ESCURO} 100%); }}
@@ -110,15 +110,27 @@ CSS = f"""
     [class*="st-key-card_"] button > div, [class*="st-key-card_"] button > div > span, [class*="st-key-card_"] button [data-testid="stMarkdownContainer"] {{ width: 100%; display: block; }}
     [class*="st-key-card_"] button p {{
         color: white !important; margin: 0; display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto;
-        column-gap: 12px; align-items: center; overflow: visible; white-space: normal; text-overflow: clip; line-height: 1.25;
+        column-gap: 12px; align-items: center; overflow: visible; white-space: normal; text-overflow: clip; line-height: 1.2;
+        font-size: 0.92rem;
     }}
     [class*="st-key-card_"] button em {{
-        grid-column: 1; grid-row: 1; font-style: normal; font-size: 0.66rem; letter-spacing: 0.08em; opacity: 0.9;
+        grid-column: 1; grid-row: 1; font-style: normal; font-size: 0.76rem; font-weight: 700; letter-spacing: 0.08em; opacity: 0.95;
     }}
     [class*="st-key-card_"] button strong {{
-        grid-column: 2; grid-row: 1 / span 2; font-size: 1.45rem; font-weight: 800; white-space: nowrap; justify-self: end;
+        grid-column: 2; grid-row: 1 / span 2; font-size: 1.65rem; font-weight: 800; white-space: nowrap; justify-self: end;
     }}
     [class*="st-key-card_"] button p::after {{ content: ""; }}
+    /* cards mais próximos entre si (o Streamlit põe 1rem entre elementos) */
+    [class*="st-key-card_"] {{ margin-bottom: -8px; }}
+
+    /* alerta compacto (conta vencida com "Pagar agora" ao lado) */
+    .sa-card.compacto {{ padding: 7px 12px; margin-bottom: 0; }}
+    .sa-card.compacto .titulo {{ margin-bottom: 1px; font-size: 0.92rem; }}
+    .sa-card.compacto .sub {{ font-size: 0.8rem; }}
+    .st-key-pagar_vencida button {{ min-height: 52px; }}
+
+    /* Lia embutida na Início */
+    .sa-lia-titulo {{ color: {AZUL_ESCURO}; font-size: 0.95rem; margin: 4px 0 2px 2px; }}
 
     /* faixa fina de saldo nas demais telas */
     .sa-faixa {{
@@ -134,7 +146,7 @@ CSS = f"""
     @media (max-width: 640px) {{
         [data-testid="stHorizontalBlock"] {{ flex-wrap: nowrap !important; gap: 8px !important; }}
         [data-testid="stColumn"] {{ min-width: 0 !important; flex: 1 1 0 !important; }}
-        [class*="st-key-card_"] button strong {{ font-size: 1.25rem; }}
+        [class*="st-key-card_"] button strong {{ font-size: 1.45rem; }}
         div.stButton > button {{ padding-left: 6px; padding-right: 6px; }}
     }}
 

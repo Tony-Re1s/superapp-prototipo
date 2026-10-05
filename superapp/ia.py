@@ -235,6 +235,16 @@ def _regras(mensagem: str, ctx: dict) -> dict:
         return {"resposta": "Identifiquei o boleto. Abri o pagamento com o código preenchido e a verificação antifraude feita — é só confirmar.",
                 "acao": {"tipo": "pagar_boleto", "codigo": mb.group(1)}}
 
+    # "pagar a Vivo Fibra", "paga a conta vencida": vai direto ao pagamento da conta citada
+    if re.search(r"\b(paga|pagar|pague|quita|quitar)\b", m):
+        pend = [c for c in ctx["contas"] if c["status"] != "paga"]
+        alvo = next((c for c in pend if _norm(c["descricao"].split(" ")[0]) in m), None)
+        if not alvo and "vencid" in m:
+            alvo = next((c for c in pend if c["status"] == "vencida"), None)
+        if alvo:
+            return {"resposta": f"Preparei o pagamento de {alvo['descricao']} ({D.brl(alvo['valor'])}). Confirme na tela.",
+                    "acao": {"tipo": "pagar_conta", "descricao": alvo["descricao"]}}
+
     if re.search(r"\b(conta|boleto|luz|agua|energia|internet|condominio|aluguel|mensalidade)\b", m) and \
             re.search(r"\b(paga|pagar|vence|vencid|atras|pendente|aberta)\w*", m):
         pend = [c for c in ctx["contas"] if c["status"] != "paga"]

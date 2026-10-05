@@ -304,13 +304,19 @@ def tela_inicio() -> None:
     prox = [c for c in ss.contas if c["status"] == "aberta" and (c["vencimento"] - D.HOJE).days <= 7]
     if vencidas:
         c = vencidas[0]
-        st.markdown(f'<div class="sa-card perigo"><div class="titulo">⚠️ Conta vencida: {c["descricao"]}</div>'
-                    f'<div class="sub">{D.brl(c["valor"])} venceu em {D.data_br(c["vencimento"])}. '
-                    f'A IA detectou que é uma conta recorrente que você sempre paga.</div></div>', unsafe_allow_html=True)
-        if st.button(f"Pagar {c['descricao']} agora", type="primary", width="stretch"):
-            ss.pagamento_pendente = c["descricao"]
-            ir_para("Pagar")
-            st.rerun()
+        col_a, col_b = st.columns([1.7, 1], vertical_alignment="center")
+        with col_a:
+            st.markdown(f'<div class="sa-card perigo compacto"><div class="titulo">⚠️ {c["descricao"]} vencida</div>'
+                        f'<div class="sub">{D.brl(c["valor"])} · venceu em {D.data_br(c["vencimento"])[:5]}</div></div>',
+                        unsafe_allow_html=True)
+        with col_b:
+            if st.button("Pagar agora", type="primary", width="stretch", key="pagar_vencida"):
+                ss.pagamento_pendente = c["descricao"]
+                ir_para("Pagar")
+                st.rerun()
+
+    lia_inicio()
+
     if prox:
         total = sum(c["valor"] for c in prox)
         estilo.card("📅 Próximos 7 dias", f"{len(prox)} conta(s) somando {D.brl(total)}: "
@@ -327,7 +333,7 @@ def tela_inicio() -> None:
     if ss.produtos.get("cartao", True):
         lim = p["limite_cartao"]
         fat = fatura_total()
-        st.progress(min(fat / lim, 1.0), text=f"Limite do cartão: {valor(fat)} usados de {valor(lim)}")
+        st.progress(min(fat / lim, 1.0), text=f"Limite do cartão: {valor(fat)} usados de {valor(lim)}".replace("$", "\\$"))
 
     st.markdown("#### Últimas movimentações")
     ult = ss.extrato.sort_values("data", ascending=False).head(5)
@@ -335,6 +341,40 @@ def tela_inicio() -> None:
     if st.button("Ver extrato completo", width="stretch"):
         ir_para("Extrato")
         st.rerun()
+
+
+# ----------------------------------------------------------------------------- Lia na Início
+def lia_inicio() -> None:
+    """Chat compacto da Lia na tela inicial: a pessoa comanda operações sem procurar menus."""
+    ss = st.session_state
+    st.markdown(f'<div class="sa-lia-titulo">💬 <b>{ASSISTENTE}</b> · peça qualquer operação, do seu jeito</div>',
+                unsafe_allow_html=True)
+    ultimas = ss.chat[-2:]
+    if ultimas:
+        for h in ultimas:
+            with st.chat_message(h["role"], avatar="🧑" if h["role"] == "user" else "💬"):
+                st.markdown(h["content"])
+    vencida = next((c for c in ss.contas if c["status"] == "vencida"), None)
+    sugestoes = [f"Pagar a {vencida['descricao']}" if vencida else "Qual conta vence esta semana?", "Manda 50 pra " + D.CONTATOS_PIX[ss.persona][0]["nome"].split(" ")[0],
+                 "Quanto está minha fatura?", "Bloqueia meu cartão"]
+    esc = st.pills("Sugestões da Lia", sugestoes, key="sug_inicio", label_visibility="collapsed")
+    with st.container():
+        entrada = st.chat_input(f"Ex.: pagar a conta de luz, fazer um Pix…", key="chat_inicio")
+    msg = entrada or esc
+    if msg and msg != ss.get("_ultima_sugestao_inicio"):
+        if esc and not entrada:
+            ss["_ultima_sugestao_inicio"] = esc
+        with st.spinner(f"{ASSISTENTE} está resolvendo…"):
+            r, destino = _processar_mensagem(msg, "Início")
+        if r.get("acao", {}).get("tipo") == "escalar_humano":
+            destino = "Assistente"
+        if destino:
+            ir_para(destino)
+        st.rerun()
+    if ss.chat:
+        if st.button(f"Abrir conversa completa com a {ASSISTENTE}", width="stretch", key="abrir_lia"):
+            ir_para("Assistente")
+            st.rerun()
 
 
 # ----------------------------------------------------------------------------- pix
@@ -1073,6 +1113,23 @@ def _botao_microfone() -> None:
     """, height=48)
 
 
+def _processar_mensagem(msg: str, origem: str) -> tuple[dict, str | None]:
+    """Envia a mensagem à Lia, executa a ação pedida e grava no histórico. Devolve (resposta, tela de destino)."""
+    ss = st.session_state
+    r = ia.responder(msg, ss.chat, contexto_ia())
+    destino = _executar_acao(r.get("acao", {}))
+    tipo = r.get("acao", {}).get("tipo")
+    if tipo == "ativar_produto" and not ss.produtos.get(str(r["acao"].get("produto", ""))):
+        r["resposta"] = (f"Você já tem {MAX_PRODUTOS} produtos na tela inicial, que é o máximo. Se quiser incluir este, "
+                         "desative outro no seu perfil (ícone 👤) que eu ativo na hora.")
+    if tipo == "cartao_virtual" and ss.cartao_virtual:
+        r["resposta"] += f"\n\n**{ss.cartao_virtual}** · CVV 731 · válido por 24h para compras online."
+    ss.chat.append({"role": "user", "content": msg})
+    ss.chat.append({"role": "assistant", "content": r["resposta"]})
+    evento(origem, "mensagem", {"fonte": r["fonte"], "acao": tipo, "escalar": r["escalar"], "uso": r.get("uso")})
+    return r, destino
+
+
 def tela_assistente() -> None:
     ss = st.session_state
     AV = "💬"
@@ -1113,7 +1170,7 @@ def tela_assistente() -> None:
 
     # caixa de mensagem logo abaixo da conversa (dentro de um container ela deixa de ficar presa ao rodapé)
     with st.container():
-        entrada = st.chat_input(f"Fale com a {ASSISTENTE} do seu jeito…")
+        entrada = st.chat_input(f"Fale com a {ASSISTENTE} do seu jeito…", key="chat_assistente")
         _botao_microfone()
 
     msg = entrada or esc
@@ -1126,19 +1183,9 @@ def tela_assistente() -> None:
             with st.chat_message("assistant", avatar=AV):
                 espaco = st.empty()
                 espaco.caption(f"{ASSISTENTE} está digitando…")
-                r = ia.responder(msg, ss.chat, contexto_ia())
-                destino = _executar_acao(r.get("acao", {}))
-                tipo = r.get("acao", {}).get("tipo")
-                if tipo == "ativar_produto" and not ss.produtos.get(str(r["acao"].get("produto", ""))):
-                    r["resposta"] = (f"Você já tem {MAX_PRODUTOS} produtos na tela inicial, que é o máximo. Se quiser incluir este, "
-                                     "desative outro no seu perfil (ícone 👤) que eu ativo na hora.")
-                if tipo == "cartao_virtual" and ss.cartao_virtual:
-                    r["resposta"] += f"\n\n**{ss.cartao_virtual}** · CVV 731 · válido por 24h para compras online."
+                r, destino = _processar_mensagem(msg, "Assistente")
                 espaco.empty()
                 st.write_stream(_digitando(r["resposta"]))
-        ss.chat.append({"role": "user", "content": msg})
-        ss.chat.append({"role": "assistant", "content": r["resposta"]})
-        evento("Assistente", "mensagem", {"fonte": r["fonte"], "acao": tipo, "escalar": r["escalar"], "uso": r.get("uso")})
         if destino:
             import time
             st.info(f"Abrindo {destino} para você…")
