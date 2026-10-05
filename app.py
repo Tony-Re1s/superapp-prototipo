@@ -43,10 +43,11 @@ else:
 # O valor do widget é sincronizado com ss.tela ANTES de o widget ser criado, assim tanto o toque na
 # pílula quanto a navegação por código (cards, atalhos, assistente) funcionam.
 telas_menu = telas.telas_disponiveis()
-if ss.tela not in telas_menu:
+FORA_DO_MENU = {"Avalie"}  # telas abertas por botão, sem pílula no menu
+if ss.tela not in telas_menu and ss.tela not in FORA_DO_MENU:
     ss.tela = "Início"
 opcoes = [f"{telas.ICONES[t]} {t}" for t in telas_menu]
-ss["nav"] = f"{telas.ICONES[ss.tela]} {ss.tela}"
+ss["nav"] = f"{telas.ICONES[ss.tela]} {ss.tela}" if ss.tela in telas_menu else None
 
 
 def _navegar():

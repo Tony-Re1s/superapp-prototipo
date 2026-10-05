@@ -101,11 +101,11 @@ CSS = f"""
         text-align: left; justify-content: flex-start; padding: 4px 16px; margin-bottom: 0;
         box-shadow: 0 4px 14px rgba(0,0,0,0.12); white-space: normal;
     }}
-    .st-key-card_conta button {{ background: linear-gradient(135deg, {LARANJA} 0%, {LARANJA_ESCURO} 100%); }}
-    .st-key-card_cartao button {{ background: linear-gradient(135deg, {AZUL} 0%, {AZUL_ESCURO} 100%); }}
-    .st-key-card_inv button {{ background: linear-gradient(135deg, #1B8A4A 0%, #0F5F32 100%); }}
-    .st-key-card_cred button {{ background: linear-gradient(135deg, #5B3FA6 0%, #3B2670 100%); }}
-    .st-key-card_seg button {{ background: linear-gradient(135deg, #0E7C86 0%, #095760 100%); }}
+    .st-key-card_conta button {{ background: linear-gradient(135deg, #EC7000 0%, #D25E00 100%); }}
+    .st-key-card_cartao button {{ background: linear-gradient(135deg, #003A70 0%, #00264D 100%); }}
+    .st-key-card_inv button {{ background: linear-gradient(135deg, #3A3D42 0%, #1E2024 100%); }}
+    .st-key-card_cred button {{ background: linear-gradient(135deg, #1F5BA8 0%, #123F7A 100%); }}
+    .st-key-card_seg button {{ background: linear-gradient(135deg, #5A6B7D 0%, #3B4856 100%); }}
     [class*="st-key-card_"] button:hover {{ filter: brightness(1.08); color: white !important; border: none; }}
     [class*="st-key-card_"] button > div, [class*="st-key-card_"] button > div > span, [class*="st-key-card_"] button [data-testid="stMarkdownContainer"] {{ width: 100%; display: block; }}
     [class*="st-key-card_"] button p {{
@@ -123,14 +123,31 @@ CSS = f"""
     /* cards mais próximos entre si (o Streamlit põe 1rem entre elementos) */
     [class*="st-key-card_"] {{ margin-bottom: -8px; }}
 
-    /* alerta compacto (conta vencida com "Pagar agora" ao lado) */
-    .sa-card.compacto {{ padding: 7px 12px; margin-bottom: 0; }}
-    .sa-card.compacto .titulo {{ margin-bottom: 1px; font-size: 0.92rem; }}
-    .sa-card.compacto .sub {{ font-size: 0.8rem; }}
-    .st-key-pagar_vencida button {{ min-height: 52px; }}
+    /* conta vencida: box cinza com o botão Pagar (laranja, pequeno) dentro */
+    .st-key-venc_box {{
+        background: #ECEDEF; border: 1px solid #DADCE0; border-left: 5px solid #8A8F98; border-radius: 14px;
+        padding: 8px 10px 8px 12px; margin-top: 4px;
+    }}
+    .st-key-venc_box [data-testid="stMarkdownContainer"] p, .st-key-venc_box .stMarkdown {{ margin-bottom: 0; }}
+    .st-key-venc_box [data-testid="stColumn"]:last-child [data-testid="stVerticalBlock"] {{ align-items: flex-end; }}
+    .st-key-venc_box .st-key-pagar_vencida {{ width: auto !important; margin-left: auto; }}
+    .sa-venc .titulo {{ font-weight: 700; color: #4A4F57; font-size: 0.92rem; }}
+    .sa-venc .sub {{ color: #6B717B; font-size: 0.8rem; line-height: 1.3; }}
+    .sa-venc .titulo {{ line-height: 1.3; }}
+    .st-key-pagar_vencida button {{ min-height: 32px; height: 32px; padding: 0 18px; font-size: 0.85rem; border-radius: 999px; }}
 
-    /* Lia embutida na Início */
-    .sa-lia-titulo {{ color: {AZUL_ESCURO}; font-size: 0.95rem; margin: 4px 0 2px 2px; }}
+    /* Lia embutida na Início: fundo sutil e borda pontilhada separam o chat dos menus */
+    .st-key-lia_box {{
+        background: #F5F7FB; border: 1.5px dashed #B9C3D6; border-radius: 16px; padding: 8px 12px 10px 12px; margin-top: 6px;
+    }}
+    .st-key-lia_box [data-testid="stChatInput"] {{ background: white; }}
+    .sa-lia-titulo {{ color: {AZUL_ESCURO}; font-size: 0.95rem; margin: 2px 0 2px 2px; }}
+
+    /* dobra: o restante da Início começa abaixo do visor inicial */
+    .sa-dobra {{
+        margin-top: 20vh; padding-top: 10px; border-top: 1px solid #E6E8EE;
+        color: #7A8391; font-size: 0.8rem; text-align: center;
+    }}
 
     /* faixa fina de saldo nas demais telas */
     .sa-faixa {{

@@ -84,7 +84,7 @@ def telas_disponiveis() -> list[str]:
         telas.append("Crédito")
     if prod.get("seguros", False):
         telas.append("Seguros")
-    telas += ["Gastos", "Avisos", "Assistente", "Segurança", "Avalie"]
+    telas += ["Gastos", "Avisos", "Assistente", "Segurança"]  # Avalie fica só no botão do fim da tela
     return telas
 
 
@@ -190,7 +190,7 @@ def tela_entrada() -> None:
         '<div class="sa-topo"><div class="marca">SUPERAPP</div>'
         '<div class="ola">Que bom ter você aqui</div>'
         '<div class="conta" style="margin-top:10px">Diga como quer ser chamado e use qualquer senha. '
-        'Explore o app como faria no seu banco e, no final, avalie na aba ⭐ Avalie.</div></div>',
+        'Explore o app como faria no seu banco e, no final, avalie pelo botão no fim da tela.</div></div>',
         unsafe_allow_html=True,
     )
     with st.form("login"):
@@ -304,18 +304,20 @@ def tela_inicio() -> None:
     prox = [c for c in ss.contas if c["status"] == "aberta" and (c["vencimento"] - D.HOJE).days <= 7]
     if vencidas:
         c = vencidas[0]
-        col_a, col_b = st.columns([1.7, 1], vertical_alignment="center")
-        with col_a:
-            st.markdown(f'<div class="sa-card perigo compacto"><div class="titulo">⚠️ {c["descricao"]} vencida</div>'
-                        f'<div class="sub">{D.brl(c["valor"])} · venceu em {D.data_br(c["vencimento"])[:5]}</div></div>',
-                        unsafe_allow_html=True)
-        with col_b:
-            if st.button("Pagar agora", type="primary", width="stretch", key="pagar_vencida"):
-                ss.pagamento_pendente = c["descricao"]
-                ir_para("Pagar")
-                st.rerun()
+        with st.container(key="venc_box"):
+            col_a, col_b = st.columns([3, 1], vertical_alignment="center")
+            with col_a:
+                st.markdown(f'<div class="sa-venc"><div class="titulo">⚠️ {c["descricao"]} · vencida</div>'
+                            f'<div class="sub">{D.brl(c["valor"])} · venceu em {D.data_br(c["vencimento"])[:5]}</div></div>',
+                            unsafe_allow_html=True)
+            with col_b:
+                if st.button("Pagar", type="primary", width="content", key="pagar_vencida"):
+                    ss.pagamento_pendente = c["descricao"]
+                    ir_para("Pagar")
+                    st.rerun()
 
     lia_inicio()
+    st.markdown('<div class="sa-dobra">Alertas e movimentações ↓</div>', unsafe_allow_html=True)
 
     if prox:
         total = sum(c["valor"] for c in prox)
@@ -346,6 +348,11 @@ def tela_inicio() -> None:
 # ----------------------------------------------------------------------------- Lia na Início
 def lia_inicio() -> None:
     """Chat compacto da Lia na tela inicial: a pessoa comanda operações sem procurar menus."""
+    with st.container(key="lia_box"):
+        _lia_inicio_conteudo()
+
+
+def _lia_inicio_conteudo() -> None:
     ss = st.session_state
     st.markdown(f'<div class="sa-lia-titulo">💬 <b>{ASSISTENTE}</b> · peça qualquer operação, do seu jeito</div>',
                 unsafe_allow_html=True)
