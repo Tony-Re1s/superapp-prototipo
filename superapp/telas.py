@@ -331,23 +331,15 @@ def pagar_rapido(c: dict) -> None:
 # ----------------------------------------------------------------------------- início
 def tela_inicio() -> None:
     ss = st.session_state
-    p = persona()
 
-    # alertas inteligentes
-    vencidas = [c for c in ss.contas if c["status"] == "vencida"]
-    prox = [c for c in ss.contas if c["status"] == "aberta" and (c["vencimento"] - D.HOJE).days <= 7]
-    if vencidas:
-        c = vencidas[0]
-        if linha_acao("vencida", f"⚠️ {c['descricao']} · vencida",
-                      f"{D.brl(c['valor'])} · venceu em {D.data_br(c['vencimento'])[:5]}",
-                      [("Pagar", "primary", "pagar")], "cinza") == "pagar":
-            pagar_rapido(c)
-            st.rerun()
-
+    # acima da dobra: cards, menu e a Lia
     lia_inicio()
     st.markdown('<div class="sa-dobra"></div>', unsafe_allow_html=True)
 
-    # 1) compras no cartão aguardando autorização
+    # 1) insight da IA: previsão com contas fixas e pendentes (inclui as vencidas)
+    insight_ia()
+
+    # 2) compras no cartão aguardando autorização
     if ss.compras_pendentes:
         st.markdown('<div class="sa-secao">🔔 Compras para autorizar</div>', unsafe_allow_html=True)
     for compra in list(ss.compras_pendentes):
@@ -361,38 +353,93 @@ def tela_inicio() -> None:
                      f"Compra em {compra['estab']} recusada. Se não foi você, bloqueie o cartão em Segurança.")
             st.rerun()
 
-    # 2) próximos vencimentos, cada um com pagamento rápido
+    # 3) contas a pagar: vencidas primeiro, depois os próximos vencimentos — pagamento rápido
+    vencidas = [c for c in ss.contas if c["status"] == "vencida"]
     abertas = sorted([c for c in ss.contas if c["status"] == "aberta"], key=lambda c: c["vencimento"])
-    if abertas:
-        st.markdown('<div class="sa-secao">📅 Próximos vencimentos</div>', unsafe_allow_html=True)
+    if vencidas or abertas:
+        st.markdown('<div class="sa-secao">📅 Contas a pagar</div>', unsafe_allow_html=True)
+    for c in vencidas:
+        if linha_acao("vencida_" + _chave(c["descricao"]), f"⚠️ {c['descricao']} · vencida",
+                      f"{valor(c['valor'])} · venceu em {D.data_br(c['vencimento'])[:5]}",
+                      [("Pagar", "primary", "pagar")], "cinza") == "pagar":
+            pagar_rapido(c)
+            st.rerun()
     for c in abertas:
         dias = (c["vencimento"] - D.HOJE).days
         quando = "vence hoje" if dias == 0 else ("vence amanhã" if dias == 1 else f"vence em {dias} dias")
-        if linha_acao("venc_" + re.sub(r'[^a-z0-9]+', '_', _norm_txt(c['descricao'])), c["descricao"],
+        if linha_acao("venc_" + _chave(c["descricao"]), c["descricao"],
                       f"{valor(c['valor'])} · {D.data_br(c['vencimento'])[:5]} · {quando}",
                       [("Pagar", "primary", "pagar")]) == "pagar":
             pagar_rapido(c)
             st.rerun()
 
-    g = gastos_por_categoria()
-    if g:
-        top = next(iter(g))
-        mensal = sum(g.values())
-        estilo.card("✨ Insight da IA", f"Você gastou {valor(mensal)} nos últimos 30 dias. Maior categoria: {top} "
-                    f"({valor(g[top])}). Previsão de fechar o mês com saldo de {valor(ss.saldo - sum(c['valor'] for c in ss.contas if c['status'] != 'paga'))} "
-                    "após as contas pendentes.", "ia")
-
+    # 4) cartão: limite + consumo dos últimos 3 meses
     if ss.produtos.get("cartao", True):
-        lim = p["limite_cartao"]
-        fat = fatura_total()
-        st.progress(min(fat / lim, 1.0), text=f"Limite do cartão: {valor(fat)} usados de {valor(lim)}".replace("$", "\\$"))
+        card_consumo_cartao()
 
-    st.markdown("#### Últimas movimentações")
+    # 5) extrato
+    st.markdown('<div class="sa-secao">📄 Últimas movimentações</div>', unsafe_allow_html=True)
     ult = ss.extrato.sort_values("data", ascending=False).head(5)
     estilo.linhas([(r.descricao, f"{D.data_br(r.data)} · {r.categoria}", valor(r.valor), r.valor > 0) for r in ult.itertuples()])
     if st.button("Ver extrato completo", width="stretch"):
         ir_para("Extrato")
         st.rerun()
+
+
+def _chave(texto: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", _norm_txt(texto)).strip("_")
+
+
+def insight_ia() -> None:
+    """Previsão do mês: contas fixas, pendentes (com as vencidas) e gasto variável médio."""
+    ss = st.session_state
+    g = gastos_por_categoria()
+    if not g:
+        return
+    pendentes = [c for c in ss.contas if c["status"] in ("aberta", "vencida")]
+    vencidas = [c for c in pendentes if c["status"] == "vencida"]
+    fixas = [c for c in ss.contas if c["recorrente"]]
+    total_fixas = sum(c["valor"] for c in fixas)
+    total_pend = sum(c["valor"] for c in pendentes)
+    variaveis = sum(v for k, v in g.items() if k not in ("Moradia", "Renda"))
+    top = next(iter(g))
+    saldo_pos = ss.saldo - total_pend
+    venc_txt = (" (inclui " + ", ".join(f"{c['descricao']} vencida, {valor(c['valor'])}" for c in vencidas) + ")") if vencidas else ""
+    linhas = [
+        ("Gasto nos últimos 30 dias", valor(sum(g.values())), f"maior categoria: {top} ({valor(g[top])})"),
+        ("Contas fixas por mês", valor(total_fixas), ", ".join(c["descricao"] for c in fixas)),
+        ("Previsão de gastos no mês", valor(total_fixas + variaveis), f"fixas + variáveis médias ({valor(variaveis)})"),
+        ("Contas a pagar agora", valor(total_pend), f"{len(pendentes)} conta(s){venc_txt}"),
+    ]
+    html = ['<div class="sa-card ia sa-insight"><div class="titulo">✨ Insight da IA</div>']
+    for rot, val, sub in linhas:
+        html.append(f'<div class="sa-ins-linha"><div><div class="rot">{rot}</div><div class="sub">{sub}</div></div>'
+                    f'<div class="val">{val}</div></div>')
+    cor = "neg" if saldo_pos < 0 else ""
+    html.append(f'<div class="sa-ins-total {cor}"><span>Saldo previsto após pagar tudo</span><b>{valor(saldo_pos)}</b></div></div>')
+    st.markdown("".join(html).replace("$", "&#36;"), unsafe_allow_html=True)
+
+
+def card_consumo_cartao() -> None:
+    """Card no mesmo estilo dos cards do topo: limite usado e consumo dos últimos 3 meses em barras."""
+    p = persona()
+    lim = p["limite_cartao"]
+    fat = fatura_total()
+    base = p["fatura_atual"]
+    meses = [("Ago", base * 1.08), ("Set", base * 0.94), ("Out", fat if fat else base)]
+    maior = max(v for _, v in meses) or 1
+    barras = "".join(
+        f'<div class="sa-bar"><div class="v">{valor(v).replace("R$ ", "")}</div>'
+        f'<div class="b{" atual" if k == len(meses) - 1 else ""}" style="height:{max(v / maior, 0.08) * 54:.0f}px"></div>'
+        f'<div class="m">{m}</div></div>'
+        for k, (m, v) in enumerate(meses))
+    uso = min(fat / lim, 1.0) * 100
+    html = (f'<div class="sa-cartao-consumo"><div class="topo"><div><div class="rot">CARTÃO · LIMITE</div>'
+            f'<div class="sub">{valor(fat)} usados de {valor(lim)}</div></div>'
+            f'<div class="disp"><span>disponível</span><b>{valor(lim - fat)}</b></div></div>'
+            f'<div class="trilho"><div style="width:{uso:.0f}%"></div></div>'
+            f'<div class="rot2">Consumo dos últimos 3 meses</div><div class="barras">{barras}</div></div>')
+    st.markdown(html.replace("$", "&#36;"), unsafe_allow_html=True)
 
 
 # ----------------------------------------------------------------------------- Lia na Início

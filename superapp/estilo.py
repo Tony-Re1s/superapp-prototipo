@@ -15,7 +15,7 @@ CSS = f"""
     /* container estreito, como uma tela de celular */
     .block-container {{
         max-width: 560px;
-        padding-top: 1.2rem;
+        padding-top: 0.2rem;
         padding-bottom: 4rem;
     }}
     /* a barra do Streamlit fica por cima da primeira linha do menu e rouba os cliques — some com ela */
@@ -128,7 +128,7 @@ CSS = f"""
         background: white; border: 1px solid #E6E8EE; border-left: 5px solid #C9CDD4; border-radius: 14px;
         padding: 8px 10px 8px 12px; margin-bottom: -6px; min-height: 56px; box-sizing: border-box;
     }}
-    .st-key-acao_vencida {{ background: #ECEDEF; border-color: #DADCE0; border-left-color: #8A8F98; margin-top: 4px; }}
+    [class*="st-key-acao_vencida"] {{ background: #ECEDEF; border-color: #DADCE0; border-left-color: #8A8F98; margin-top: 4px; }}
     [class*="st-key-acao_compra_"] {{ background: #FFF6EE; border-color: #FBDDC2; border-left-color: {LARANJA}; }}
     [class*="st-key-acao_"] [data-testid="stMarkdownContainer"], [class*="st-key-acao_"] .stMarkdown {{ margin: 0 !important; }}
     [class*="st-key-acao_"] [data-testid="stElementContainer"] {{ margin: 0 !important; }}
@@ -149,9 +149,41 @@ CSS = f"""
     .st-key-lia_box [data-testid="stChatInput"] {{ background: white; }}
     .sa-lia-titulo {{ color: {AZUL_ESCURO}; font-size: 0.95rem; margin: 2px 0 2px 2px; }}
 
+    /* insight da IA em linhas */
+    .sa-insight .sa-ins-linha {{ display: flex; justify-content: space-between; align-items: center; gap: 10px;
+        padding: 6px 0; border-bottom: 1px dashed #C9D3EA; }}
+    .sa-insight .rot {{ color: {AZUL_ESCURO}; font-size: 0.86rem; font-weight: 600; }}
+    .sa-insight .sub {{ font-size: 0.76rem; }}
+    .sa-insight .val {{ font-weight: 700; color: {AZUL_ESCURO}; white-space: nowrap; font-size: 0.92rem; }}
+    .sa-ins-total {{ display: flex; justify-content: space-between; align-items: center; margin-top: 8px;
+        color: {AZUL_ESCURO}; font-size: 0.88rem; }}
+    .sa-ins-total b {{ font-size: 1.15rem; color: {VERDE}; }}
+    .sa-ins-total.neg b {{ color: {VERMELHO}; }}
+
+    /* card do cartão com consumo dos 3 últimos meses (mesmo estilo dos cards do topo) */
+    .sa-cartao-consumo {{
+        background: linear-gradient(135deg, #003A70 0%, #00264D 100%); color: white; border-radius: 14px;
+        padding: 10px 16px 8px 16px; box-shadow: 0 4px 14px rgba(0,0,0,0.12); margin: 14px 0 4px 0;
+    }}
+    .sa-cartao-consumo .topo {{ display: flex; justify-content: space-between; align-items: center; }}
+    .sa-cartao-consumo .rot {{ font-size: 0.76rem; font-weight: 700; letter-spacing: 0.08em; opacity: 0.95; }}
+    .sa-cartao-consumo .sub {{ font-size: 0.84rem; opacity: 0.9; }}
+    .sa-cartao-consumo .disp {{ text-align: right; line-height: 1.1; }}
+    .sa-cartao-consumo .disp span {{ display: block; font-size: 0.7rem; opacity: 0.8; }}
+    .sa-cartao-consumo .disp b {{ font-size: 1.3rem; font-weight: 800; }}
+    .sa-cartao-consumo .trilho {{ height: 5px; background: rgba(255,255,255,0.22); border-radius: 99px; margin: 7px 0 8px 0; }}
+    .sa-cartao-consumo .trilho div {{ height: 100%; background: {LARANJA}; border-radius: 99px; }}
+    .sa-cartao-consumo .rot2 {{ font-size: 0.72rem; opacity: 0.8; margin-bottom: 4px; }}
+    .sa-cartao-consumo .barras {{ display: flex; gap: 14px; height: 96px; align-items: flex-end; }}
+    .sa-bar {{ flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }}
+    .sa-bar .b {{ flex-shrink: 0; width: 100%; max-width: 64px; background: rgba(255,255,255,0.45); border-radius: 6px 6px 2px 2px; }}
+    .sa-bar .b.atual {{ background: {LARANJA}; }}
+    .sa-bar .v {{ font-size: 0.7rem; opacity: 0.9; margin-bottom: 2px; white-space: nowrap; }}
+    .sa-bar .m {{ font-size: 0.72rem; opacity: 0.85; margin-top: 2px; }}
+
     /* dobra: o restante da Início começa abaixo do visor inicial */
     .sa-dobra {{
-        margin-top: 20vh; padding-top: 10px; border-top: 1px solid #E6E8EE;
+        margin: 20vh 0 4px 0; border-top: 1px solid #DADCE0;
         color: #7A8391; font-size: 0.8rem; text-align: center;
     }}
 
