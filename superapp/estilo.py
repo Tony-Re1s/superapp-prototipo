@@ -121,6 +121,19 @@ CSS = f"""
         grid-column: 2; grid-row: 1 / span 2; font-size: 1.65rem; font-weight: 800; white-space: nowrap; justify-self: end;
     }}
     [class*="st-key-card_"] button p::after {{ content: ""; }}
+
+    /* cards de indicador (mesmo desenho dos cards da Início, sem ser botão) */
+    .sa-kpi {{
+        display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; column-gap: 12px; align-items: center;
+        height: 54px; border-radius: 14px; padding: 4px 16px; margin-bottom: 8px; color: white;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.12); background: linear-gradient(135deg, #3A3D42 0%, #1E2024 100%);
+    }}
+    .sa-kpi.verde {{ background: linear-gradient(135deg, #1B8A4A 0%, #0F5F32 100%); }}
+    .sa-kpi.laranja {{ background: linear-gradient(135deg, #EC7000 0%, #D25E00 100%); }}
+    .sa-kpi.azul {{ background: linear-gradient(135deg, #003A70 0%, #00264D 100%); }}
+    .sa-kpi .rot {{ grid-column: 1; grid-row: 1; font-size: 0.74rem; font-weight: 700; letter-spacing: 0.08em; opacity: 0.95; }}
+    .sa-kpi .sub {{ grid-column: 1; grid-row: 2; font-size: 0.8rem; opacity: 0.9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+    .sa-kpi .val {{ grid-column: 2; grid-row: 1 / span 2; font-size: 1.45rem; font-weight: 800; white-space: nowrap; }}
     /* cards mais próximos entre si (o Streamlit põe 1rem entre elementos) */
     [class*="st-key-card_"] {{ margin-bottom: -8px; }}
 
@@ -263,5 +276,13 @@ def rodape() -> None:
         '<div class="sa-aviso">Protótipo acadêmico — FIAP Pós-Tech, Tech Challenge Fase 03. '
         "Banco fictício. Nenhum dado real é coletado além da sua avaliação anônima. "
         "Não há biometria: a confirmação de segurança usa uma senha fictícia (qualquer 4 dígitos).<br><span style=\"opacity:0.7\">" + VERSAO + "</span></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def kpi(rotulo: str, valor: str, sub: str = "", cor: str = "") -> None:
+    """Card de indicador no desenho dos cards da Início: rótulo e legenda à esquerda, valor grande à direita."""
+    st.markdown(
+        f'<div class="sa-kpi {cor}"><div class="rot">{rotulo.upper()}</div><div class="sub">{sub}</div><div class="val">{valor}</div></div>',
         unsafe_allow_html=True,
     )

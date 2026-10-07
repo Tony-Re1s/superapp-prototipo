@@ -982,10 +982,9 @@ def tela_investir() -> None:
     st.markdown("### 📈 Investimentos")
     total = sum(i["valor"] for i in ss.investimentos)
     rend = sum(i["valor"] * i["rent_12m"] for i in ss.investimentos)
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Patrimônio", D.brl(total))
-    m2.metric("Rendimento 12m", D.brl(rend), f"{rend / total:.1%}")
-    m3.metric("Disponível p/ aplicar", D.brl(ss.saldo))
+    estilo.kpi("Patrimônio investido", valor(total), f"{len(ss.investimentos)} produtos na carteira")
+    estilo.kpi("Rendimento 12 meses", valor(rend), f"{rend / total:.1%} ao ano · {valor(total * 0.0085)} este mês", "verde")
+    estilo.kpi("Disponível para aplicar", valor(ss.saldo), "saldo da conta corrente", "laranja")
     aba1, aba2, aba3 = st.tabs(["Carteira", "Aplicar / Resgatar", "Simulador"])
     with aba1:
         for i in ss.investimentos:
@@ -1043,7 +1042,7 @@ def tela_investir() -> None:
         i = (1 + taxa) ** (1 / 12) - 1
         n = anos * 12
         fv = vi * (1 + i) ** n + vm * (((1 + i) ** n - 1) / i)
-        st.metric("Valor estimado ao final", D.brl(fv), f"{D.brl(fv - vi - vm * n)} de juros")
+        estilo.kpi("Valor estimado ao final", D.brl(fv), f"{D.brl(fv - vi - vm * n)} de juros em {anos} anos", "azul")
         st.caption("Simulação didática, sem impostos.")
 
 
