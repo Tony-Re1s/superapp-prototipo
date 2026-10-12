@@ -1532,6 +1532,17 @@ def tela_resultados() -> None:
                 st.rerun()
             st.error("Senha incorreta.")
         return
+    with st.spinner("Verificando o banco…"):
+        diag = db.diagnostico()
+    if diag["ok"]:
+        estilo.card("🟢 Banco de dados: tudo certo", diag["msg"] + " Pode divulgar o link.", "ok")
+    elif diag["modo"] == "local":
+        estilo.card("🟠 Banco não configurado", diag["msg"] + " Para corrigir: share.streamlit.io → app → Settings → Secrets → "
+                    "adicione o bloco [supabase] com a URI do Session pooler (veja .streamlit/secrets.example.toml).", "alerta")
+    else:
+        estilo.card("🔴 Banco configurado, mas sem conexão", diag["msg"], "perigo")
+    if st.button("🔄 Testar de novo", width="stretch"):
+        st.rerun()
     df = db.listar_avaliacoes()
     st.caption(("Fonte: Supabase" if db.usando_supabase() else "Fonte: CSV local") + f" · {len(df)} avaliação(ões)")
     if df.empty:

@@ -142,3 +142,37 @@ def listar_eventos() -> pd.DataFrame:
             return pd.read_sql("SELECT * FROM eventos_uso ORDER BY criado_em DESC LIMIT 5000", con)
     except Exception:  # noqa: BLE001
         return pd.DataFrame()
+
+
+def diagnostico() -> dict:
+    """Estado da conexão com o banco, para o painel do grupo."""
+    url = _url()
+    if not url:
+        return {"ok": False, "modo": "local",
+                "msg": "Bloco [supabase] não encontrado nos Secrets. As avaliações estão indo para um CSV temporário que some quando o app reinicia."}
+    try:
+        host = url.split("@")[-1].split("/")[0]
+    except Exception:  # noqa: BLE001
+        host = "?"
+    try:
+        import psycopg2
+        with psycopg2.connect(url, connect_timeout=8) as con:
+            with con.cursor() as cur:
+                cur.execute(SQL_TABELA)
+                con.commit()
+                cur.execute("SELECT count(*) FROM avaliacoes")
+                n = cur.fetchone()[0]
+        return {"ok": True, "modo": "supabase", "host": host, "n": n,
+                "msg": f"Conectado em {host}. Tabelas criadas. {n} avaliação(ões) gravada(s)."}
+    except Exception as e:  # noqa: BLE001
+        dica = ""
+        err = str(e)
+        if "password authentication failed" in err:
+            dica = " → A senha na URL não é a senha do banco deste projeto. Use Reset database password no Supabase e atualize os Secrets."
+        elif "could not translate host name" in err or "Name or service not known" in err:
+            dica = " → O host está errado. Copie a URI do Session pooler (aws-0-sa-east-1.pooler.supabase.com)."
+        elif "Tenant or user not found" in err:
+            dica = " → O usuário precisa ser postgres.<project_ref> (formato do Session pooler), não só postgres."
+        elif "timeout" in err.lower() or "Network is unreachable" in err:
+            dica = " → Não alcançou o banco. Confira se usou a porta 5432 do Session pooler (a conexão direta só responde em IPv6) e se o projeto não está pausado no painel do Supabase."
+        return {"ok": False, "modo": "erro", "host": host, "msg": f"Erro ao conectar em {host}: {err.strip()[:200]}{dica}"}
