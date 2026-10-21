@@ -1056,10 +1056,10 @@ def tela_gastos() -> None:
     ant = {k: g_ant.get(k, 0) - g.get(k, 0) for k in g_ant}
     total = sum(g.values())
     total_ant = sum(ant.values())
-    m1, m2 = st.columns(2)
-    m1.metric("Gastos últimos 30 dias", D.brl(total), f"{(total - total_ant) / max(total_ant, 1):+.0%} vs. 30 dias anteriores", delta_color="inverse")
+    var = (total - total_ant) / max(total_ant, 1)
+    estilo.kpi("Gastos últimos 30 dias", valor(total), f"{var:+.0%} vs. 30 dias anteriores", "laranja" if var > 0 else "verde")
     contas_pend = sum(c["valor"] for c in ss.contas if c["status"] != "paga")
-    m2.metric("Previsão de contas até o fim do mês", D.brl(contas_pend))
+    estilo.kpi("Previsão até o fim do mês", valor(contas_pend), f"{sum(1 for c in ss.contas if c['status'] != 'paga')} conta(s) em aberto", "azul")
     df = pd.DataFrame({"Este mês": pd.Series(g), "Mês anterior": pd.Series(ant)}).fillna(0)
     st.bar_chart(df, color=[estilo.LARANJA, "#B8C2D9"], height=260)
     st.markdown("#### Categorização automática")
@@ -1421,10 +1421,8 @@ def tela_credito() -> None:
     n = st.select_slider("Em quantas parcelas?", options=opcoes_n, value=n_ini)
     i = 0.0149
     parcela = v * i / (1 - (1 + i) ** -n)
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Parcela", D.brl(parcela))
-    c2.metric("Total", D.brl(parcela * n))
-    c3.metric("CET aprox.", f"{((1 + i) ** 12 - 1):.1%} a.a.")
+    estilo.kpi("Parcela mensal", D.brl(parcela), f"{n}x · juros de 1,49% a.m.", "azul")
+    estilo.kpi("Total a pagar", D.brl(parcela * n), f"CET aprox. {((1 + i) ** 12 - 1):.1%} a.a.")
     if parcela > 0.3 * p["salario"]:
         estilo.card("✨ Leitura da IA", f"Essa parcela compromete {parcela / p['salario']:.0%} da sua renda. "
                     "Recomendo até 30%: experimente mais parcelas ou um valor menor.", "alerta")
@@ -1553,11 +1551,14 @@ def tela_resultados() -> None:
     det = (nps_s <= 6).sum()
     neu = len(nps_s) - prom - det
     nps = (prom - det) / len(nps_s) * 100 if len(nps_s) else 0
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("NPS", f"{nps:+.1f}")
-    m2.metric("Promotores", int(prom))
-    m3.metric("Neutros", int(neu))
-    m4.metric("Detratores", int(det))
+    estilo.kpi("NPS", f"{nps:+.1f}", f"{len(nps_s)} resposta(s) · linha de base da pesquisa: +35,7", "laranja")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        estilo.kpi("Promotores", str(int(prom)), "notas 9–10", "verde")
+    with c2:
+        estilo.kpi("Neutros", str(int(neu)), "notas 7–8", "azul")
+    with c3:
+        estilo.kpi("Detratores", str(int(det)), "notas 0–6")
     st.caption("Linha de base da pesquisa de campo (Fase 03): NPS +35,7 (24 promotores, 28 neutros, 4 detratores, n=56).")
     st.markdown("#### Nota média por módulo (1–5, ignorando 0 = não viu)")
     medias = {}
