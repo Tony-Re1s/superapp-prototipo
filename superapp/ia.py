@@ -343,7 +343,8 @@ def responder(mensagem: str, historico: list[dict], ctx: dict) -> dict:
     if seguranca and obj.get("acao", {}).get("tipo") not in ("bloquear_cartao", "escalar_humano"):
         obj["resposta"] = (
             "Entendi, e fico do seu lado nisso. Vamos proteger sua conta primeiro: posso bloquear o cartão agora e limitar o Pix. "
-            "Já estou chamando o Rafael, da equipe de segurança — ele vê nossa conversa, não precisa repetir nada. " + obj.get("resposta", "")
+            "Já estou chamando o Rafael, da equipe de segurança — ele vê nossa conversa, não precisa repetir nada. "
+            + ("" if obj.get("nao_entendi") else obj.get("resposta", ""))
         ).strip()
         obj["acao"] = {"tipo": "escalar_humano", "motivo": "segurança"}
     elif escalar and obj.get("acao", {}).get("tipo") != "escalar_humano":
