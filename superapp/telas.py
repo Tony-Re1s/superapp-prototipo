@@ -110,7 +110,7 @@ ICONES_MENU = {"Início": ":material/home:", "Pix": ":material/currency_exchange
 def menu_app(telas_menu: list[str]) -> None:
     """Menu do app em blocos com ícone (vidro fosco), no mesmo desenho da tela de entrada."""
     ss = st.session_state
-    with st.container(key="menu_app", horizontal=True, gap="small"):
+    with st.container(key="menu_app", horizontal=True, gap=None):
         for t in telas_menu:
             estado = "on" if t == ss.tela else "off"
             st.button(t, icon=ICONES_MENU.get(t, ":material/apps:"), key=f"nav_{estado}_{_chave(t)}",

@@ -152,6 +152,44 @@ async function verificarRosto(video, ms, aoContar) {
   video.srcObject = null;
   return { ok, motivo: ok ? "rosto" : (fa ? "sem_rosto" : "detector") };
 }
+
+// senha falada: "um dois três quatro" ou "1234" → "1234"
+const DIG = {zero:"0",um:"1",uma:"1",dois:"2",duas:"2",tres:"3",quatro:"4",cinco:"5",seis:"6",meia:"6",sete:"7",oito:"8",nove:"9"};
+function digitos(t) {
+  let s = "";
+  for (const w of norm(t).split(/(\d)|[^a-z0-9]+/).filter(Boolean)) { if (/^\d$/.test(w)) s += w; else if (DIG[w]) s += DIG[w]; }
+  return s;
+}
+
+// voz simples (Lia): fala em pt-BR e ouve uma resposta; devolve null se o navegador não deixar
+function falarLia(texto) {
+  return new Promise((res) => {
+    if (!("speechSynthesis" in window)) return res(false);
+    let feito = false; const fim = (ok) => { if (!feito) { feito = true; res(ok); } };
+    try {
+      const u = new SpeechSynthesisUtterance(texto); u.lang = "pt-BR"; u.rate = 1.05;
+      const voz = speechSynthesis.getVoices().find((v) => (v.lang || "").toLowerCase().startsWith("pt"));
+      if (voz) u.voice = voz;
+      u.onend = () => fim(true); u.onerror = () => fim(false);
+      speechSynthesis.cancel(); speechSynthesis.speak(u);
+    } catch (e) { fim(false); }
+    setTimeout(() => fim(true), 900 + texto.length * 70);
+  });
+}
+function ouvirLia(ms = 7000, aoParcial) {
+  return new Promise((res) => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return res(null);
+    let final = "", parcial = "", feito = false;
+    const r = new SR(); r.lang = "pt-BR"; r.interimResults = true; r.maxAlternatives = 1;
+    const fim = () => { if (feito) return; feito = true; try { r.stop(); } catch (e) {} res((final || parcial).trim() || null); };
+    r.onresult = (e) => { let t = ""; for (const x of e.results) t += x[0].transcript; parcial = t; aoParcial && aoParcial(t);
+      if (e.results[e.results.length - 1].isFinal) final = t; };
+    r.onerror = () => fim(); r.onend = () => fim();
+    setTimeout(fim, ms);
+    try { r.start(); } catch (e) { fim(); }
+  });
+}
 """
 
 # ------------------------------------------------------------------------------- portão (menus)
@@ -163,6 +201,8 @@ HTML_PORTAO = """
   <div class="pedido escondido">
     <div class="senha"><input type="password" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off">
       <button class="entrar">Entrar</button></div>
+    <button class="sec falar-senha" style="margin-top:8px">🎤 Falar a senha</button>
+    <div class="ouvindo sub"></div>
     <div class="erro"></div>
     <button class="sec repetir" style="margin-top:6px">Tentar o rosto de novo</button>
   </div>
@@ -196,16 +236,37 @@ export default function (component) {
     } else {
       cam.className = "cam falhou"; icone.textContent = "🔑"; icone.classList.remove("escondido");
       titulo.textContent = "Não reconhecemos seu rosto";
-      sub.textContent = r.motivo === "camera" ? "Câmera indisponível ou sem permissão. Digite sua senha de acesso."
-                                              : "Digite sua senha de acesso para continuar.";
+      sub.textContent = r.motivo === "camera" ? "Câmera indisponível ou sem permissão. Diga ou digite sua senha de acesso."
+                                              : "Diga ou digite sua senha de acesso para continuar.";
       sub.innerHTML += ` <span style="color:#7A8391">(protótipo: ${data.senha})</span>`;
-      pedido.classList.remove("escondido"); campo.value = ""; erro.textContent = ""; campo.focus();
+      pedido.classList.remove("escondido"); campo.value = ""; erro.textContent = "";
+      // sem rosto (dirigindo, celular na mochila…): a Lia fala e ouve a senha; o campo continua valendo
+      await falarLia("Não consegui identificar seu rosto. Diga a sua senha de acesso.");
+      ouvirSenha();
     }
   }
-  function entrar() {
-    if (campo.value === data.senha) setTriggerValue("liberado", { tela: data.tela, metodo: "senha" });
-    else { erro.textContent = "Senha incorreta. Tente de novo."; campo.value = ""; campo.focus(); }
+  let tentativas = 0;
+  function conferir(valor, origem) {
+    if (digitos(valor) === data.senha) {
+      if (origem === "voz") falarLia("Senha confirmada.");
+      setTriggerValue("liberado", { tela: data.tela, metodo: origem === "voz" ? "senha_voz" : "senha" });
+      return true;
+    }
+    tentativas++;
+    erro.textContent = "Senha incorreta. Tente de novo.";
+    campo.value = "";
+    if (origem === "voz" && tentativas < 2) falarLia("Senha incorreta. Diga de novo, por favor.").then(ouvirSenha);
+    return false;
   }
+  async function ouvirSenha() {
+    const ouv = $(".ouvindo");
+    ouv.textContent = "🎤 Ouvindo a senha…";
+    const t = await ouvirLia(7000, () => { ouv.textContent = "🎤 ••••"; });
+    ouv.textContent = t ? "" : "Não ouvi. Toque em “Falar a senha” ou digite.";
+    if (t) conferir(t, "voz");
+  }
+  function entrar() { conferir(campo.value, "texto"); campo.focus(); }
+  $(".falar-senha").onclick = () => { tentativas = 0; ouvirSenha(); };
   $(".entrar").onclick = entrar;
   campo.onkeydown = (e) => { if (e.key === "Enter") entrar(); };
   $(".repetir").onclick = escanear;
@@ -246,7 +307,6 @@ const NUM = {zero:0,um:1,uma:1,dois:2,duas:2,tres:3,quatro:4,cinco:5,seis:6,sete
   treze:13,quatorze:14,catorze:14,quinze:15,dezesseis:16,dezessete:17,dezoito:18,dezenove:19,vinte:20,trinta:30,quarenta:40,
   cinquenta:50,sessenta:60,setenta:70,oitenta:80,noventa:90,cem:100,cento:100,duzentos:200,duzentas:200,trezentos:300,
   trezentas:300,quatrocentos:400,quinhentos:500,seiscentos:600,setecentos:700,oitocentos:800,novecentos:900};
-const DIG = {zero:"0",um:"1",uma:"1",dois:"2",duas:"2",tres:"3",quatro:"4",cinco:"5",seis:"6",meia:"6",sete:"7",oito:"8",nove:"9"};
 const SINONIMOS = {luz:"enel",energia:"enel",internet:"vivo",fibra:"vivo",condominio:"condominio",academia:"academia",ipva:"ipva"};
 const SIM = /\b(ok|okay|okey|oquei|seguir|segue|sigo|siga|confirm\w*|sim|pode|manda|vai|isso)\b/;
 const NAO = /\b(nao|cancel\w*|pare|para tudo|desist\w*)\b/;
@@ -271,11 +331,6 @@ function valorDe(t) {
   }
   fecha();
   return melhor;
-}
-function digitos(t) {
-  let s = "";
-  for (const w of norm(t).split(/(\d)|[^a-z0-9]+/).filter(Boolean)) { if (/^\d$/.test(w)) s += w; else if (DIG[w]) s += DIG[w]; }
-  return s;
 }
 // valor para a Lia falar: "300 reais", "119 reais e 90 centavos"
 function valorFalado(v) {

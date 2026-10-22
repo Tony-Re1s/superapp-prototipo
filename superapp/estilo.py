@@ -9,7 +9,7 @@ CINZA = "#F4F5F7"
 TEXTO = "#1F2430"
 VERDE = "#1B8A4A"
 VERMELHO = "#C62828"
-VERSAO = "v2026.10.22-valores"  # mostrada no rodapé para conferir qual versão está publicada
+VERSAO = "v2026.10.22-senha-voz"  # mostrada no rodapé para conferir qual versão está publicada
 
 CSS = f"""
 <style>
@@ -210,33 +210,33 @@ CSS = f"""
     .st-key-pre_acessar {{ margin-top: 10px; }}
 
     /* menu do app em blocos com ícone, no desenho da tela de entrada */
-    div.st-key-menu_app[data-testid="stHorizontalBlock"] {{ flex-wrap: wrap !important; }}
+    div.st-key-menu_app[data-testid="stHorizontalBlock"] {{ flex-wrap: wrap !important; gap: 6px 0 !important; }}
     .st-key-menu_app {{
-        flex-wrap: wrap !important; row-gap: 10px !important; padding: 14px 8px 10px 8px; border-radius: 22px; margin: 4px 0 6px 0;
+        flex-wrap: wrap !important; row-gap: 6px !important; column-gap: 0 !important; padding: 10px 4px 6px 4px; border-radius: 20px; margin: 2px 0 4px 0;
         background:
           radial-gradient(260px 160px at 90% 0%, rgba(236,112,0,0.28), transparent 70%),
           radial-gradient(300px 220px at 0% 100%, rgba(46,92,255,0.40), transparent 70%),
           linear-gradient(160deg, #061447 0%, #020A2E 100%);
         box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 12px 28px rgba(2,10,46,0.35);
     }}
-    div.st-key-menu_app[data-testid="stHorizontalBlock"] > .stElementContainer {{ flex: 0 0 calc(25% - 8px) !important;
-        min-width: 0 !important; max-width: calc(25% - 8px); }}
+    div.st-key-menu_app[data-testid="stHorizontalBlock"] > .stElementContainer {{ flex: 0 0 20% !important;
+        min-width: 0 !important; max-width: 20%; }}
     .st-key-menu_app button, .st-key-menu_app button:hover, .st-key-menu_app button:focus {{
         background: transparent !important; border: none !important; padding: 0 !important; min-height: 0;
         box-shadow: none !important; outline: none; }}
     .st-key-menu_app button > div {{ width: 100%; }}
     .st-key-menu_app button span[data-has-shortcut] {{ display: flex !important; flex-direction: column !important;
-        align-items: center !important; gap: 5px; width: 100%; }}
+        align-items: center !important; gap: 3px; width: 100%; }}
     .st-key-menu_app button span[data-has-shortcut] > span:first-child {{
-        width: 52px; height: 52px; display: flex !important; align-items: center; justify-content: center; border-radius: 16px;
+        width: 44px; height: 44px; display: flex !important; align-items: center; justify-content: center; border-radius: 14px;
         margin: 0 !important; transition: transform .15s ease; background: linear-gradient(145deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05)); -webkit-backdrop-filter: blur(14px) saturate(150%); backdrop-filter: blur(14px) saturate(150%); border: 1px solid rgba(255,255,255,0.20); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), inset 0 -1px 0 rgba(0,0,0,0.25), 0 12px 28px rgba(0,0,0,0.40); }}
-    .st-key-menu_app button [data-testid="stIconMaterial"] {{ font-size: 1.55rem !important; color: white; margin: 0 !important;
+    .st-key-menu_app button [data-testid="stIconMaterial"] {{ font-size: 1.35rem !important; color: white; margin: 0 !important;
         filter: drop-shadow(0 2px 5px rgba(0,0,0,0.35)); }}
     .st-key-menu_app button:hover span[data-has-shortcut] > span:first-child {{ transform: translateY(-2px); }}
     [class*="st-key-nav_on_"] button span[data-has-shortcut] > span:first-child {{
         background: linear-gradient(145deg, #FF8A1F, #C25C00) !important; border-color: rgba(255,200,150,0.6) !important;
         box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 8px 20px rgba(236,112,0,0.55) !important; }}
-    .st-key-menu_app button p {{ color: #E6EBF5 !important; font-size: 0.74rem; white-space: nowrap; text-align: center;
+    .st-key-menu_app button p {{ color: #E6EBF5 !important; font-size: 0.68rem; white-space: nowrap; text-align: center;
         overflow: visible !important; text-overflow: clip !important; }}
     [class*="st-key-nav_on_"] button p {{ color: white !important; font-weight: 700; }}
     .st-key-menu_app button div {{ overflow: visible !important; text-overflow: clip !important; }}
