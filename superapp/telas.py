@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from . import dados as D
+from . import biometria as BIO
 from . import db, estilo, ia
 
 TELAS = ["Início", "Pix", "Cartão", "Pagar", "Extrato", "Investir", "Gastos", "Avisos", "Assistente", "Segurança", "Avalie"]
@@ -96,7 +97,13 @@ def telas_disponiveis() -> list[str]:
     return telas
 
 
+# menus que abrem com verificação de rosto (biometria no aparelho) ou senha
+PROTEGIDAS = {"Pix", "Pagar", "Cartão", "Extrato", "Investir", "Gastos", "Crédito", "Seguros"}
+
+
 def ir_para(tela: str) -> None:
+    if tela != st.session_state.get("tela"):
+        st.session_state.bio_liberada = None  # cada abertura de menu protegido pede o rosto de novo
     st.session_state.tela = tela
     st.session_state.telas_visitadas.add(tela)
 
@@ -302,6 +309,45 @@ def faixa_saldo() -> None:
                 unsafe_allow_html=True)
 
 
+# ----------------------------------------------------------------------------- biometria ao abrir menus
+def tela_biometria(tela: str) -> None:
+    """Portão dos menus protegidos: rosto por 3 s; sem rosto, senha de acesso."""
+    st.markdown(f"### {ICONES.get(tela, '🔒')} {tela}")
+    r = BIO.portao(tela)
+    if r:
+        st.session_state.bio_liberada = r["tela"]
+        evento("Biometria", "liberado", {"tela": r["tela"], "metodo": r["metodo"]})
+        st.rerun()
+
+
+# ----------------------------------------------------------------------------- Lia por voz
+def executar_voz(op: dict) -> None:
+    """Executa a operação que a Lia confirmou por voz (rosto ou senha + ok/seguir)."""
+    ss = st.session_state
+    valor_op = float(op.get("valor") or 0)
+    metodo = "rosto confirmado" if op.get("metodo") == "rosto" else "rosto não identificado → senha falada"
+    if valor_op <= 0 or valor_op > ss.saldo:
+        st.toast("Saldo insuficiente — operação não realizada.")
+        return
+    if op.get("tipo") == "conta":
+        c = next((c for c in ss.contas if c["descricao"] == op.get("descricao") and c["status"] != "paga"), None)
+        if not c:
+            st.toast("Essa conta já estava paga.")
+            return
+        lancar(f"Pagamento — {c['descricao']}", -c["valor"], "Moradia")
+        c["status"] = "paga"
+        resumo = f"Paguei **{c['descricao']}** ({D.brl(c['valor'])})."
+    else:
+        nome = str(op.get("nome", "")).split(" (")[0]
+        lancar(f"Pix enviado — {nome}", -valor_op, "Transferência")
+        resumo = f"Pix de **{D.brl(valor_op)}** enviado para **{op.get('nome')}** ({op.get('chave')})."
+    ss.chat.append({"role": "user", "content": f"🎤 {op.get('comando', '')}"})
+    ss.chat.append({"role": "assistant", "content": f"{resumo} Validação: {metodo}. Comprovante em Extrato."})
+    evento("Início", "lia_voz", {"tipo": op.get("tipo"), "valor": valor_op, "metodo": op.get("metodo"),
+                                 "motivo_rosto": op.get("motivo_rosto"), "novo": op.get("novo", False)})
+    st.toast(f"✅ {resumo.replace('**', '')}")
+
+
 # ----------------------------------------------------------------------------- linha de alerta com ação
 def linha_acao(chave: str, titulo: str, sub: str, botoes: list[tuple[str, str, str]], tom: str = "") -> str | None:
     """Box de alerta em uma linha: texto à esquerda e botões pequenos à direita, sempre no mesmo esquadro.
@@ -451,6 +497,11 @@ def lia_inicio() -> None:
 
 def _lia_inicio_conteudo() -> None:
     ss = st.session_state
+    pendentes = [c for c in ss.contas if c["status"] in ("aberta", "vencida")]
+    op = BIO.lia_voz(ss.nome, D.CONTATOS_PIX[ss.persona], pendentes, ss.saldo)
+    if op:
+        executar_voz(op)
+        st.rerun()
     st.markdown(f'<div class="sa-lia-titulo">💬 <b>{ASSISTENTE}</b> · peça qualquer operação, do seu jeito</div>',
                 unsafe_allow_html=True)
     ultimas = ss.chat[-2:]

@@ -93,6 +93,7 @@ CONTATOS_PIX = {
         {"nome": "Melhor amigo(a)", "chave": "11 98811-2244", "banco": "Superapp"},
         {"nome": "Mãe", "chave": "11 97700-5566", "banco": "Caixa"},
         {"nome": "Dentista", "chave": "22.333.444/0001-55", "banco": "Bradesco"},
+        {"nome": "Piscineiro (Seu Carlos)", "chave": "11 99123-4567", "banco": "Itaú"},
     ],
     "marisa": [
         {"nome": "Ana Andrade (filha)", "chave": "ana.andrade@email.com", "banco": "Nubank"},

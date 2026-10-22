@@ -19,7 +19,18 @@ cores laranja/azul. Cada tela responde a uma dor levantada na pesquisa de campo
 | Segurança (golpe, celular perdido, verificador de mensagem) | Persona Marisa |
 | Avalie (NPS + nota por módulo + perfil) | Fonte de dados para os OKRs |
 
-Entrada: login fictício (qualquer CPF e senha), um único perfil de cliente. Sem biometria (LGPD): a confirmação reforçada usa uma senha fictícia de 4 dígitos.
+Entrada: login automático (perfil padrão). A Início abre sem biometria; os menus com dados ou operações
+(Pix, Pagar, Cartão, Extrato, Investir, Gastos, Crédito, Seguros) abrem com **verificação de rosto por 3 s**;
+sem rosto (ou sem câmera), pedem a **senha de acesso** (protótipo: `1234`).
+
+**Botão LIA (voz):** a pessoa fala o comando (“pagar o piscineiro 300 reais”, “pagar a conta de luz”); a Lia
+preenche o pagamento e, ao mesmo tempo, valida o rosto por 3 s. Se não identificar o rosto (dirigindo, celular
+na mochila), a Lia **fala** e pede a senha por voz; depois lê os dados e pede “ok” ou “seguir” antes de executar.
+Funciona também digitando (navegadores sem reconhecimento de voz).
+
+LGPD: a detecção de rosto roda no navegador (face-api, em `static/faceapi`, servido com
+`server.enableStaticServing`). Nenhuma imagem é gravada ou enviada. No protótipo a checagem é de presença de
+rosto, não de identidade.
 
 ## Rodar no seu PC
 
@@ -82,6 +93,8 @@ superapp/dados.py           personas (Marisa/Lucas), extrato, fatura, contas, in
 superapp/estilo.py          identidade visual (laranja/azul) e componentes
 superapp/telas.py           todas as telas
 superapp/ia.py              assistente: API Claude + regras + escalonamento humano
+superapp/biometria.py       rosto no aparelho (menus) e Lia por voz (comando, rosto/senha, ok/seguir)
+static/faceapi/             detector de rosto (face-api, MIT) servido pelo próprio app
 superapp/db.py              Supabase (Session pooler) com fallback em CSV
 schema.sql                  referência das tabelas
 .streamlit/config.toml      tema

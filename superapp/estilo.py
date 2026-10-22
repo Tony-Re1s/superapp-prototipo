@@ -9,7 +9,7 @@ CINZA = "#F4F5F7"
 TEXTO = "#1F2430"
 VERDE = "#1B8A4A"
 VERMELHO = "#C62828"
-VERSAO = "v2026.10.05-22h"  # mostrada no rodapé para conferir qual versão está publicada
+VERSAO = "v2026.10.22-biometria"  # mostrada no rodapé para conferir qual versão está publicada
 
 CSS = f"""
 <style>
@@ -275,7 +275,7 @@ def rodape() -> None:
     st.markdown(
         '<div class="sa-aviso">Protótipo acadêmico — FIAP Pós-Tech, Tech Challenge Fase 03. '
         "Banco fictício. Nenhum dado real é coletado além da sua avaliação anônima. "
-        "Não há biometria: a confirmação de segurança usa uma senha fictícia (qualquer 4 dígitos).<br><span style=\"opacity:0.7\">" + VERSAO + "</span></div>",
+        "A biometria facial roda só no aparelho: nenhuma imagem é gravada ou enviada. Senha de acesso do protótipo: 1234.<br><span style=\"opacity:0.7\">" + VERSAO + "</span></div>",
         unsafe_allow_html=True,
     )
 

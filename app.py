@@ -59,7 +59,7 @@ def _navegar():
 st.pills("Navegação", opcoes, key="nav", on_change=_navegar, label_visibility="collapsed")
 
 # ----------------------------------------------------------------------------- conteúdo
-{
+TELAS = {
     "Início": telas.tela_inicio,
     "Pix": telas.tela_pix,
     "Cartão": telas.tela_cartao,
@@ -73,7 +73,11 @@ st.pills("Navegação", opcoes, key="nav", on_change=_navegar, label_visibility=
     "Avalie": telas.tela_avaliar,
     "Crédito": telas.tela_credito,
     "Seguros": telas.tela_seguros,
-}[ss.tela]()
+}
+if ss.tela in telas.PROTEGIDAS and ss.get("bio_liberada") != ss.tela:
+    telas.tela_biometria(ss.tela)  # abre o menu e verifica o rosto (ou senha)
+else:
+    TELAS[ss.tela]()
 
 st.divider()
 if not ss.get("avaliado") and ss.tela != "Avalie":
