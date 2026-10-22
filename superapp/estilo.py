@@ -9,7 +9,7 @@ CINZA = "#F4F5F7"
 TEXTO = "#1F2430"
 VERDE = "#1B8A4A"
 VERMELHO = "#C62828"
-VERSAO = "v2026.10.22-entrada-lia"  # mostrada no rodapé para conferir qual versão está publicada
+VERSAO = "v2026.10.22-lia-consultas"  # mostrada no rodapé para conferir qual versão está publicada
 
 CSS = f"""
 <style>
@@ -168,6 +168,14 @@ CSS = f"""
         font-size: 1rem; padding: 10px 2px 6px 2px; }}
     .sa-pre-topo .ajuda {{ width: 30px; height: 30px; border: 2px solid white; border-radius: 50%; display: flex;
         align-items: center; justify-content: center; font-weight: 700; }}
+    .st-key-pre_topo {{ justify-content: space-between; padding-top: 6px; }}
+    .st-key-pre_topo [data-testid="stPopover"] button {{ background: transparent !important; border: none !important;
+        color: white !important; padding-left: 0; }}
+    .st-key-pre_topo [data-testid="stPopover"] button p, .st-key-pre_topo [data-testid="stPopover"] button span {{
+        color: white !important; font-weight: 700; font-size: 1.05rem; }}
+    .sa-pre-ajuda {{ width: 30px; height: 30px; border: 2px solid white; border-radius: 50%; display: flex; color: white;
+        align-items: center; justify-content: center; font-weight: 700; }}
+    .sa-token {{ font-size: 2.2rem; font-weight: 800; letter-spacing: 0.25em; color: #00226B; text-align: center; }}
     .sa-pre-conta {{ display: inline-flex; gap: 14px; align-items: center; background: rgba(255,255,255,0.09);
         border-radius: 999px; padding: 10px 28px 10px 10px; color: white; margin: 8px 0 18px 0; }}
     .sa-pre-conta .av {{ width: 52px; height: 52px; border-radius: 50%; background: #EDEFF3; color: #3A3D42;

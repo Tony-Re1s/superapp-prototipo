@@ -21,7 +21,11 @@ cores laranja/azul. Cada tela responde a uma dor levantada na pesquisa de campo
 
 **Tela de entrada (antes do login)**, no formato dos apps de banco: conta salva, atalhos rápidos
 (Pix e transferir, Pagar, Cartão virtual, Extrato) e **Acessar**. Cada atalho verifica o rosto (ou pede a senha) e
-abre direto na aba. Ali também fica a **Lia por voz**, que resolve Pix e contas sem entrar no app.
+abre direto na aba. Ali também fica a **Lia por voz**, com segurança por nível de risco:
+- **sem senha** (só leitura): saldo, fatura, limite e contas a vencer, respondidos na hora;
+- **com rosto (ou senha falada)**: Pix, pagamento de contas e “abrir o extrato/cartão/…” (abre a tela já liberada).
+
+O **Token** também abre sem senha: só gera o código, não movimenta a conta.
 
 Dentro do app, a Início abre sem nova verificação; os menus com dados ou operações
 (Pix, Pagar, Cartão, Extrato, Investir, Gastos, Crédito, Seguros) abrem com **verificação de rosto por 3 s**;

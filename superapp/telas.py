@@ -1,7 +1,9 @@
 """Telas do protótipo. Cada função `tela_*` desenha uma tela completa."""
 from __future__ import annotations
 
+import hashlib
 import re
+import time
 import uuid
 from datetime import date, timedelta
 
@@ -310,6 +312,17 @@ def faixa_saldo() -> None:
                 unsafe_allow_html=True)
 
 
+def _lia_voz(key: str, **extra):
+    """Monta a Lia por voz com os dados da pessoa; devolve o resultado do componente."""
+    ss = st.session_state
+    p = persona()
+    pendentes = [c for c in ss.contas if c["status"] in ("aberta", "vencida")]
+    fat = fatura_total()
+    return BIO.lia_voz(ss.nome, D.CONTATOS_PIX[ss.persona], pendentes, ss.saldo, key=key,
+                       fatura={"valor": fat, "vencimento": p["fatura_vencimento"].strftime("%d/%m")} if fat else None,
+                       limite_disponivel=p["limite_cartao"] - fat, **extra)
+
+
 # ----------------------------------------------------------------------------- tela de entrada (antes do login)
 ATALHOS = [("Pix", ":material/currency_exchange:", "Pix e transferir"), ("Pagar", ":material/barcode:", "Pagar"),
            ("Cartão", ":material/credit_card:", "Cartão virtual"), ("Extrato", ":material/receipt_long:", "Extrato")]
@@ -332,8 +345,17 @@ def tela_pre_login() -> None:
     p = persona()
     st.markdown('<style>.stApp{background:linear-gradient(180deg,#02040F 0%,#061447 55%,#020A2E 100%) !important;}'
                 '.sa-aviso{color:#8E98B3 !important;}</style>', unsafe_allow_html=True)
+    # Token sem senha (só gera o código; não movimenta nada)
+    with st.container(key="pre_topo", horizontal=True, vertical_alignment="center"):
+        with st.popover("Token", icon=":material/key:"):
+            agora = int(time.time())
+            codigo = int(hashlib.sha256(f"{ss.sessao}-{agora // 30}".encode()).hexdigest(), 16) % 1_000_000
+            st.markdown(f'<div class="sa-token">{codigo:06d}</div>', unsafe_allow_html=True)
+            st.caption(f"Válido por mais {30 - agora % 30} s. Sem senha: o token só gera o código "
+                       "para confirmar operações em outro canal; ele não movimenta sua conta.")
+            st.button("Gerar novo", key="pre_token_novo", width="stretch")
+        st.markdown('<div class="sa-pre-ajuda">?</div>', unsafe_allow_html=True, width="content")
     st.markdown(
-        '<div class="sa-pre-topo"><span>🔑 Token</span><span class="ajuda">?</span></div>'
         f'<div class="sa-pre-conta"><div class="av">{ss.nome[:1]}{p["nome"].split(" ")[-1][:1]}</div>'
         f'<div><b>{ss.nome}</b><div class="cpf">CPF •••.456.789-••</div><div class="troca">Trocar conta</div></div></div>',
         unsafe_allow_html=True)
@@ -353,13 +375,16 @@ def tela_pre_login() -> None:
 
     st.markdown('<div class="sa-pre-slogan">Seu banco,<br>do seu jeito.</div>', unsafe_allow_html=True)
 
-    # Lia por voz direto da tela de entrada: Pix e contas sem entrar no app
-    pendentes = [c for c in ss.contas if c["status"] in ("aberta", "vencida")]
-    op = BIO.lia_voz(ss.nome, D.CONTATOS_PIX[ss.persona], pendentes, ss.saldo, key="lia_voz_pre", tema="escuro",
-                     chamada="Resolva com a Lia, sem entrar",
-                     dica="Toque e fale: “pagar o piscineiro 300 reais”")
-    if op:
-        executar_voz(op)
+    # Lia por voz direto da tela de entrada: consultas sem senha; Pix, contas e abrir telas com rosto (ou senha)
+    r = _lia_voz("lia_voz_pre", tema="escuro", chamada="Fale com a Lia, sem entrar",
+                 dica="Consultas sem senha: “qual meu saldo?”, “quando vence a fatura?”. Para pagar ou abrir o app, ela confirma seu rosto.")
+    if r.consulta:
+        evento("Entrada", "lia_consulta", {"comando": r.consulta.get("comando", "")})
+    if r.abrir:
+        _entrar(r.abrir["tela"], r.abrir["metodo"])
+        st.rerun()
+    if r.executar:
+        executar_voz(r.executar)
         st.rerun()
 
     with st.container(key="pre_atalhos", horizontal=True, gap="small", horizontal_alignment="distribute"):
@@ -561,10 +586,15 @@ def lia_inicio() -> None:
 
 def _lia_inicio_conteudo() -> None:
     ss = st.session_state
-    pendentes = [c for c in ss.contas if c["status"] in ("aberta", "vencida")]
-    op = BIO.lia_voz(ss.nome, D.CONTATOS_PIX[ss.persona], pendentes, ss.saldo)
-    if op:
-        executar_voz(op)
+    r = _lia_voz("lia_voz")
+    if r.consulta:
+        evento("Início", "lia_consulta", {"comando": r.consulta.get("comando", "")})
+    if r.abrir:
+        ir_para(r.abrir["tela"])
+        ss.bio_liberada = r.abrir["tela"]
+        st.rerun()
+    if r.executar:
+        executar_voz(r.executar)
         st.rerun()
     st.markdown(f'<div class="sa-lia-titulo">💬 <b>{ASSISTENTE}</b> · peça qualquer operação, do seu jeito</div>',
                 unsafe_allow_html=True)

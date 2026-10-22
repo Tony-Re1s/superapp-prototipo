@@ -216,7 +216,7 @@ HTML_VOZ = """
   <div class="topo">
     <button class="mic" title="Falar com a Lia">🎙️<br>LIA</button>
     <div class="chamada"><b>Toque e fale com a Lia</b>
-      <div class="sub">Ex.: “pagar o piscineiro 300 reais”, “pagar a conta de luz”</div></div>
+      <div class="sub">Pergunte sem senha: “qual meu saldo?”. Para pagar: “pagar o piscineiro 300 reais”.</div></div>
   </div>
   <div class="painel escondido">
     <div class="balao"><div class="quem">Lia</div><div class="fala"></div></div>
@@ -247,6 +247,12 @@ const DIG = {zero:"0",um:"1",uma:"1",dois:"2",duas:"2",tres:"3",quatro:"4",cinco
 const SINONIMOS = {luz:"enel",energia:"enel",internet:"vivo",fibra:"vivo",condominio:"condominio",academia:"academia",ipva:"ipva"};
 const SIM = /\b(ok|okay|okey|oquei|seguir|segue|sigo|siga|confirm\w*|sim|pode|manda|vai|isso)\b/;
 const NAO = /\b(nao|cancel\w*|pare|para tudo|desist\w*)\b/;
+const TRANSACAO = /\b(pag\w*|pix|manda\w*|mande|transf\w*|envi\w*|deposit\w*|quit\w*)\b/;
+const ABRIR = /\b(abr\w*|mostr\w*|ver|veja|entr\w*|acess\w*)\b/;
+const ABRIR_FORTE = /\b(abr\w*|entr\w*|acess\w*)\b/;
+const TELAS_VOZ = [[/\bextrato\b|movimenta/, "Extrato", "o extrato"], [/\bpix\b/, "Pix", "o Pix"],
+  [/\bcartao\b|\bfatura\b|virtual/, "Cartão", "o cartão"], [/\bpagamento|\bcontas?\b|boleto/, "Pagar", "os pagamentos"],
+  [/invest/, "Investir", "os investimentos"], [/\bgastos?\b/, "Gastos", "os gastos"], [/inicio|\bapp\b|conta corrente|minha conta/, "Início", "a sua conta"]];
 
 function valorDe(t) {
   const n = norm(t);
@@ -372,6 +378,54 @@ export default function (component) {
   function status(t, cls = "") { ui.status.textContent = t; ui.status.className = "status " + cls; }
   function fimFluxo() { rodando = false; ui.mic.classList.remove("ativo"); ui.entrada.classList.add("escondido"); ui.botoes.classList.add("escondido"); }
 
+  // rosto por 3 s; sem rosto, a Lia fala e pede a senha (2 tentativas). Devolve {metodo, rosto} ou null.
+  async function validar() {
+    const d = D();
+    ui.cam.className = "cam"; ui.icone.classList.add("escondido");
+    const rosto = await verificarRosto($(".op video"), d.segundos * 1000, (s) => status(`Validando seu rosto… ${s}s`));
+    if (rosto.ok) {
+      ui.cam.className = "cam ok"; ui.icone.textContent = "✅"; ui.icone.classList.remove("escondido");
+      status("Rosto confirmado", "ok");
+      return { metodo: "rosto", rosto };
+    }
+    ui.cam.className = "cam falhou"; ui.icone.textContent = "🔑"; ui.icone.classList.remove("escondido");
+    status("Rosto não identificado · validação por senha", "alerta");
+    await falar("Não consegui identificar seu rosto. Se você estiver dirigindo ou com o celular guardado, tudo bem: diga a sua senha de acesso.");
+    for (let tent = 1; tent <= 2; tent++) {
+      const r = await resposta({ placeholder: `Senha (protótipo: ${d.senha})`, tipo: "password" });
+      ui.voce.textContent = r.origem === "voz" ? "🎤 ••••" : "••••";
+      if (NAO.test(norm(r.v))) { await falar("Tudo bem, cancelei."); return null; }
+      if (digitos(r.v) === d.senha) { status("Senha confirmada", "ok"); return { metodo: "senha", rosto }; }
+      if (tent === 1) await falar("Senha incorreta. Diga de novo, por favor.");
+    }
+    status("Senha incorreta", "alerta");
+    await falar("Senha incorreta de novo. Por segurança, cancelei.");
+    return null;
+  }
+
+  // consultas respondidas sem senha (só leitura)
+  function consulta(cmd, d) {
+    const n = norm(cmd);
+    if (TRANSACAO.test(n) || ABRIR_FORTE.test(n)) return null;  // "abrir o cartão" abre a tela; "ver a fatura" só informa
+    if (/\b(saldo|quanto (eu )?tenho|quanto tem)\b/.test(n))
+      return `Seu saldo disponível é de ${valorFalado(d.saldo)}.`;
+    if (/\b(fatura|cartao)\b/.test(n) && !/\blimite\b/.test(n))
+      return d.fatura ? `Sua fatura está em ${valorFalado(d.fatura.valor)} e vence dia ${d.fatura.vencimento}.` : "Você não tem fatura aberta.";
+    if (/\blimite\b/.test(n))
+      return `Você tem ${valorFalado(d.limite_disponivel)} de limite disponível no cartão.`;
+    if (/\b(contas|boletos?|vence|vencem|vencimentos?|pendentes?)\b|\bconta (a pagar|vencida)/.test(n)) {
+      if (!d.contas.length) return "Você não tem contas pendentes.";
+      return "Suas contas pendentes: " + d.contas.map((c) => `${c.descricao}, ${valorFalado(c.valor)}, ${c.status === "vencida" ? "vencida" : "vence dia " + c.vencimento}`).join("; ") + ". Se quiser, é só dizer: pagar a " + d.contas[0].descricao.split(" ")[0] + ".";
+    }
+    return null;
+  }
+  function telaPedida(cmd) {
+    const n = norm(cmd);
+    if (!ABRIR.test(n)) return null;
+    for (const [re, tela, nome] of TELAS_VOZ) if (re.test(n)) return { tela, nome };
+    return null;
+  }
+
   async function fluxo() {
     if (rodando) return;
     rodando = true;
@@ -385,6 +439,28 @@ export default function (component) {
       let cmd = (await resposta({ placeholder: "Ou digite: pagar o piscineiro 300 reais" })).v;
       ui.voce.textContent = "🎤 " + cmd;
       if (NAO.test(norm(cmd))) { await falar("Tudo bem, cancelei."); return fimFluxo(); }
+
+      // consulta: responde na hora, sem rosto nem senha
+      const info = consulta(cmd, d);
+      if (info) { status(""); await falar(info); raiz.__set("consulta", { comando: cmd }); return fimFluxo(); }
+
+      // "abrir o extrato", "ver meu cartão": valida o rosto e abre a tela
+      const abrir = telaPedida(cmd);
+      if (abrir) {
+        ui.op.classList.remove("escondido");
+        $(".f-tipo").textContent = "Abrir no app"; $(".f-para").textContent = abrir.nome;
+        $(".f-chave").textContent = "—"; $(".f-valor").textContent = "—";
+        const v = await validar();
+        if (!v) return fimFluxo();
+        await falar(`${v.metodo === "senha" ? "Senha confirmada" : "Rosto confirmado"}. Abrindo ${abrir.nome}.`);
+        fimFluxo();
+        raiz.__set("abrir", { tela: abrir.tela, metodo: v.metodo });
+        return;
+      }
+      if (!TRANSACAO.test(norm(cmd)) && !destinoDe(cmd, d.contatos, d.contas)) {
+        await falar("Posso te dizer o saldo, a fatura, o limite e as contas a vencer, sem senha. Para Pix, pagamentos ou abrir o app, eu confirmo seu rosto antes.");
+        return fimFluxo();
+      }
       let alvo = destinoDe(cmd, d.contatos, d.contas);
       let valor = valorDe(cmd);
       if (!alvo) {
@@ -407,30 +483,11 @@ export default function (component) {
       }
       if (op.valor > d.saldo) { status("Saldo insuficiente", "alerta"); await falar(`Seu saldo não cobre ${brl(op.valor)}. Cancelei a operação.`); return fimFluxo(); }
 
-      // 2) rosto por 3 segundos (ao mesmo tempo em que a ficha aparece)
-      ui.cam.className = "cam"; ui.icone.classList.add("escondido");
+      // 2) rosto por 3 segundos (ao mesmo tempo em que a ficha aparece); sem rosto, senha falada
       const falaDados = `${op.tipo === "conta" ? "Pagamento de " + op.nome : "Pix para " + op.nome.split(" (")[0]}, valor de ${valorFalado(op.valor)}`;
-      const rosto = await verificarRosto($(".op video"), d.segundos * 1000, (s) => status(`Validando seu rosto… ${s}s`));
-      let metodo = "rosto";
-      if (rosto.ok) {
-        ui.cam.className = "cam ok"; ui.icone.textContent = "✅"; ui.icone.classList.remove("escondido");
-        status("Rosto confirmado", "ok");
-      } else {
-        ui.cam.className = "cam falhou"; ui.icone.textContent = "🔑"; ui.icone.classList.remove("escondido");
-        status("Rosto não identificado · validação por senha", "alerta");
-        metodo = "senha";
-        await falar("Não consegui identificar seu rosto. Se você estiver dirigindo ou com o celular guardado, tudo bem: diga a sua senha de acesso.");
-        let certa = false;
-        for (let tent = 1; tent <= 2 && !certa; tent++) {
-          const r = await resposta({ placeholder: `Senha (protótipo: ${d.senha})`, tipo: "password" });
-          ui.voce.textContent = r.origem === "voz" ? "🎤 ••••" : "••••";
-          if (NAO.test(norm(r.v))) { await falar("Tudo bem, cancelei."); return fimFluxo(); }
-          certa = digitos(r.v) === d.senha;
-          if (!certa && tent === 1) await falar("Senha incorreta. Diga de novo, por favor.");
-        }
-        if (!certa) { status("Senha incorreta", "alerta"); await falar("Senha incorreta de novo. Por segurança, cancelei a operação."); return fimFluxo(); }
-        status("Senha confirmada", "ok");
-      }
+      const valid = await validar();
+      if (!valid) return fimFluxo();
+      const { metodo, rosto } = valid;
 
       // 3) confirmação com "ok" ou "seguir"
       const aviso = op.novo ? " Atenção: é um destinatário novo." : "";
@@ -472,14 +529,17 @@ def portao(tela: str, rotulo: str = "", tema: str = "claro", prefixo: str = "bio
 
 
 def lia_voz(nome: str, contatos: list[dict], contas: list[dict], saldo: float, key: str = "lia_voz",
-            tema: str = "claro", chamada: str = "", dica: str = ""):
-    """Botão LIA por voz. Devolve a operação confirmada (dict) no rerun em que a pessoa confirmou."""
+            tema: str = "claro", chamada: str = "", dica: str = "", fatura: dict | None = None,
+            limite_disponivel: float = 0.0):
+    """Botão LIA por voz. Consultas sem senha; transações e abrir telas com rosto (ou senha).
+    Devolve o resultado do componente: .executar (operação confirmada), .abrir (tela liberada), .consulta."""
     dados = {
         "tema": tema, "chamada": chamada, "dica": dica,
         "nome": nome, "senha": SENHA_ACESSO, "segundos": SEGUNDOS_ROSTO, "saldo": round(float(saldo), 2),
         "contatos": [{"nome": c["nome"], "chave": c["chave"], "banco": c.get("banco", "")} for c in contatos],
-        "contas": [{"descricao": c["descricao"], "valor": c["valor"], "vencimento": c["vencimento"].strftime("%d/%m")}
-                   for c in contas],
+        "contas": [{"descricao": c["descricao"], "valor": c["valor"], "vencimento": c["vencimento"].strftime("%d/%m"),
+                    "status": c.get("status", "aberta")} for c in contas],
+        "fatura": fatura, "limite_disponivel": round(float(limite_disponivel), 2),
     }
-    res = _voz(key=key, data=dados, on_executar_change=lambda: None)
-    return res.executar
+    return _voz(key=key, data=dados, on_executar_change=lambda: None, on_abrir_change=lambda: None,
+                on_consulta_change=lambda: None)
