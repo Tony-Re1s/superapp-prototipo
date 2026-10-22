@@ -19,7 +19,11 @@ cores laranja/azul. Cada tela responde a uma dor levantada na pesquisa de campo
 | Segurança (golpe, celular perdido, verificador de mensagem) | Persona Marisa |
 | Avalie (NPS + nota por módulo + perfil) | Fonte de dados para os OKRs |
 
-Entrada: login automático (perfil padrão). A Início abre sem biometria; os menus com dados ou operações
+**Tela de entrada (antes do login)**, no formato dos apps de banco: conta salva, atalhos rápidos
+(Pix e transferir, Pagar, Cartão virtual, Extrato) e **Acessar**. Cada atalho verifica o rosto (ou pede a senha) e
+abre direto na aba. Ali também fica a **Lia por voz**, que resolve Pix e contas sem entrar no app.
+
+Dentro do app, a Início abre sem nova verificação; os menus com dados ou operações
 (Pix, Pagar, Cartão, Extrato, Investir, Gastos, Crédito, Seguros) abrem com **verificação de rosto por 3 s**;
 sem rosto (ou sem câmera), pedem a **senha de acesso** (protótipo: `1234`).
 

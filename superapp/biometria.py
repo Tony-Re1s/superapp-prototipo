@@ -78,6 +78,21 @@ button:disabled { opacity: 0.5; }
 .entrada button.falar { padding: 9px 12px; }
 .botoes { display: flex; gap: 8px; margin-top: 10px; }
 .botoes button { flex: 1; }
+
+/* tema escuro (tela de entrada, antes do login) */
+.sa-bio.escuro { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.14); color: #F2F4F8; }
+.sa-bio.escuro .titulo, .sa-bio.escuro .chamada b { color: white; }
+.sa-bio.escuro .sub, .sa-bio.escuro .lgpd { color: #B8C0D4; }
+.sa-bio.escuro .balao { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.16); color: white; }
+.sa-bio.escuro .voce { background: #EC7000; }
+.sa-bio.escuro .ficha { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.16); }
+.sa-bio.escuro .ficha .linha span { color: #B8C0D4; }
+.sa-bio.escuro .ficha .linha b { color: white; }
+.sa-bio.escuro .status { color: #B8C0D4; }
+.sa-bio.escuro .status.ok { color: #5FD08E; }
+.sa-bio.escuro .status.alerta { color: #FFB066; }
+.sa-bio.escuro button.sec { background: transparent; color: white; border-color: rgba(255,255,255,0.4); }
+.sa-bio.escuro input { background: rgba(255,255,255,0.95); }
 """
 
 # ---------------------------------------------------------------------------------- JS comum
@@ -159,8 +174,9 @@ export default function (component) {
   const $ = (s) => raiz.querySelector(s);
   if (raiz.__iniciado) return;
   raiz.__iniciado = true;
+  if (data.tema === "escuro") $(".sa-bio").classList.add("escuro");
   carregarDetector();
-  $(".tela").textContent = data.tela;
+  $(".tela").textContent = data.rotulo || data.tela;
   const cam = $(".cam"), icone = $(".icone"), titulo = $(".titulo"), sub = $(".sub");
   const pedido = $(".pedido"), campo = $("input"), erro = $(".erro");
 
@@ -288,6 +304,9 @@ export default function (component) {
   raiz.__iniciado = true;
   const $ = (s) => raiz.querySelector(s);
   const D = () => raiz.__data;
+  if (data.tema === "escuro") $(".sa-bio").classList.add("escuro");
+  if (data.chamada) $(".chamada b").textContent = data.chamada;
+  if (data.dica) $(".chamada .sub").textContent = data.dica;
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const ui = {
     painel: $(".painel"), fala: $(".fala"), voce: $(".voce"), op: $(".op"), cam: $(".op .cam"), icone: $(".op .icone"),
@@ -403,7 +422,7 @@ export default function (component) {
         await falar("Não consegui identificar seu rosto. Se você estiver dirigindo ou com o celular guardado, tudo bem: diga a sua senha de acesso.");
         let certa = false;
         for (let tent = 1; tent <= 2 && !certa; tent++) {
-          const r = await resposta({ placeholder: `Senha de acesso (protótipo: ${d.senha})`, tipo: "password" });
+          const r = await resposta({ placeholder: `Senha (protótipo: ${d.senha})`, tipo: "password" });
           ui.voce.textContent = r.origem === "voz" ? "🎤 ••••" : "••••";
           if (NAO.test(norm(r.v))) { await falar("Tudo bem, cancelei."); return fimFluxo(); }
           certa = digitos(r.v) === d.senha;
@@ -444,16 +463,19 @@ _portao = st.components.v2.component("sa_portao_biometria", html=HTML_PORTAO, cs
 _voz = st.components.v2.component("sa_lia_voz", html=HTML_VOZ, css=CSS, js=JS_VOZ)
 
 
-def portao(tela: str):
+def portao(tela: str, rotulo: str = "", tema: str = "claro", prefixo: str = "bio"):
     """Mostra a verificação de rosto da tela. Devolve {'tela', 'metodo'} quando liberar."""
-    res = _portao(key=f"bio_{tela}", data={"tela": tela, "senha": SENHA_ACESSO, "segundos": SEGUNDOS_ROSTO},
+    res = _portao(key=f"{prefixo}_{tela}", data={"tela": tela, "rotulo": rotulo or tela, "tema": tema,
+                                                 "senha": SENHA_ACESSO, "segundos": SEGUNDOS_ROSTO},
                   on_liberado_change=lambda: None)
     return res.liberado
 
 
-def lia_voz(nome: str, contatos: list[dict], contas: list[dict], saldo: float, key: str = "lia_voz"):
+def lia_voz(nome: str, contatos: list[dict], contas: list[dict], saldo: float, key: str = "lia_voz",
+            tema: str = "claro", chamada: str = "", dica: str = ""):
     """Botão LIA por voz. Devolve a operação confirmada (dict) no rerun em que a pessoa confirmou."""
     dados = {
+        "tema": tema, "chamada": chamada, "dica": dica,
         "nome": nome, "senha": SENHA_ACESSO, "segundos": SEGUNDOS_ROSTO, "saldo": round(float(saldo), 2),
         "contatos": [{"nome": c["nome"], "chave": c["chave"], "banco": c.get("banco", "")} for c in contatos],
         "contas": [{"descricao": c["descricao"], "valor": c["valor"], "vencimento": c["vencimento"].strftime("%d/%m")}

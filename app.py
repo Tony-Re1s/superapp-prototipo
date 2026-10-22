@@ -15,17 +15,15 @@ if st.query_params.get("admin") == "1":
     telas.tela_resultados()
     st.stop()
 
-# Login automático: entra direto com o perfil padrão (nome "Ana"), sem passar pela tela de entrada.
-# Para voltar a exibir a tela de login, troque para False.
-LOGIN_AUTOMATICO = True
-
+# Estado do cliente fictício (perfil padrão). Antes do login aparece a tela de entrada:
+# atalhos rápidos (rosto ou senha e abre direto a aba) e a Lia por voz, sem entrar no app.
 if "persona" not in st.session_state:
-    if LOGIN_AUTOMATICO:
-        telas.iniciar_estado("padrao")
-        telas.evento("Entrada", "login_automatico", {})
-    else:
-        telas.tela_entrada()
-        st.stop()
+    telas.iniciar_estado("padrao")
+    telas.evento("Entrada", "sessao", {})
+
+if not st.session_state.get("logado"):
+    telas.tela_pre_login()
+    st.stop()
 
 ss = st.session_state
 

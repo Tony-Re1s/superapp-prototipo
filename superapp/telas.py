@@ -35,6 +35,7 @@ def iniciar_estado(persona_id: str, nome: str = "") -> None:
     p = D.PERSONAS[persona_id]
     ss = st.session_state
     ss.persona = persona_id
+    ss.logado = False  # começa na tela de entrada (atalhos rápidos + Lia, sem login)
     ss.nome = (nome or p["primeiro_nome"]).strip().split(" ")[0].capitalize()
     ss.sessao = ss.get("sessao") or uuid.uuid4().hex[:12]
     ss.mostrar_saldo = True
@@ -307,6 +308,69 @@ def faixa_saldo() -> None:
     """Nas demais telas: só uma faixa fina com o saldo."""
     st.markdown(f'<div class="sa-faixa">Saldo disponível <b>{valor(st.session_state.saldo)}</b></div>',
                 unsafe_allow_html=True)
+
+
+# ----------------------------------------------------------------------------- tela de entrada (antes do login)
+ATALHOS = [("Pix", ":material/currency_exchange:", "Pix e transferir"), ("Pagar", ":material/barcode:", "Pagar"),
+           ("Cartão", ":material/credit_card:", "Cartão virtual"), ("Extrato", ":material/receipt_long:", "Extrato")]
+
+
+def _entrar(destino: str, metodo: str) -> None:
+    ss = st.session_state
+    ss.logado = True
+    ss.pre_destino = None
+    ir_para(destino)
+    ss.bio_liberada = destino  # já validou o rosto na entrada: não pede de novo
+    if destino == "Cartão":
+        ss.cartao_aba_virtual = True
+    evento("Entrada", "atalho" if destino != "Início" else "acessar", {"destino": destino, "metodo": metodo})
+
+
+def tela_pre_login() -> None:
+    """Tela antes do login: atalhos rápidos (abrem com rosto/senha) e a Lia por voz, sem entrar no app."""
+    ss = st.session_state
+    p = persona()
+    st.markdown('<style>.stApp{background:linear-gradient(180deg,#02040F 0%,#061447 55%,#020A2E 100%) !important;}'
+                '.sa-aviso{color:#8E98B3 !important;}</style>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sa-pre-topo"><span>🔑 Token</span><span class="ajuda">?</span></div>'
+        f'<div class="sa-pre-conta"><div class="av">{ss.nome[:1]}{p["nome"].split(" ")[-1][:1]}</div>'
+        f'<div><b>{ss.nome}</b><div class="cpf">CPF •••.456.789-••</div><div class="troca">Trocar conta</div></div></div>',
+        unsafe_allow_html=True)
+
+    destino = ss.get("pre_destino")
+    if destino:  # tocou num atalho: rosto (ou senha) e abre direto a aba
+        rotulo = next((r for t, _, r in ATALHOS if t == destino), "Acessar sua conta")
+        st.markdown(f'<div class="sa-pre-titulo">{rotulo}</div>', unsafe_allow_html=True)
+        r = BIO.portao(destino, rotulo=rotulo, tema="escuro", prefixo="pre")
+        if r:
+            _entrar(destino, r["metodo"])
+            st.rerun()
+        if st.button("Voltar", key="pre_voltar", width="stretch"):
+            ss.pre_destino = None
+            st.rerun()
+        return
+
+    st.markdown('<div class="sa-pre-slogan">Seu banco,<br>do seu jeito.</div>', unsafe_allow_html=True)
+
+    # Lia por voz direto da tela de entrada: Pix e contas sem entrar no app
+    pendentes = [c for c in ss.contas if c["status"] in ("aberta", "vencida")]
+    op = BIO.lia_voz(ss.nome, D.CONTATOS_PIX[ss.persona], pendentes, ss.saldo, key="lia_voz_pre", tema="escuro",
+                     chamada="Resolva com a Lia, sem entrar",
+                     dica="Toque e fale: “pagar o piscineiro 300 reais”")
+    if op:
+        executar_voz(op)
+        st.rerun()
+
+    with st.container(key="pre_atalhos", horizontal=True, gap="small", horizontal_alignment="distribute"):
+        for tela, icone, rotulo in ATALHOS:
+            if st.button(rotulo, icon=icone, key=f"pre_{_chave(tela)}", width="stretch"):
+                ss.pre_destino = tela
+                st.rerun()
+    if st.button("Acessar", icon=":material/home:", key="pre_acessar", width="stretch"):
+        ss.pre_destino = "Início"
+        st.rerun()
+    estilo.rodape()
 
 
 # ----------------------------------------------------------------------------- biometria ao abrir menus
@@ -745,7 +809,9 @@ def tela_cartao() -> None:
     if ss.cartao_bloqueado:
         estilo.card("Cartão bloqueado preventivamente", "Compras serão recusadas até você desbloquear. Débito e Pix seguem normais.", "perigo")
 
-    aba1, aba2, aba3, aba4, aba5 = st.tabs(["Fatura atual", "Passadas", "Recentes", "Parcelados", "Virtuais"])
+    # vindo do atalho "Cartão virtual" da tela de entrada, abre direto na aba Virtuais
+    aba_ini = "Virtuais" if st.session_state.pop("cartao_aba_virtual", False) else None
+    aba1, aba2, aba3, aba4, aba5 = st.tabs(["Fatura atual", "Passadas", "Recentes", "Parcelados", "Virtuais"], default=aba_ini)
     with aba1:
         if ss.fatura_paga:
             estilo.card("Fatura paga ✅", "Nada pendente no cartão. Limite totalmente disponível.", "ok")
