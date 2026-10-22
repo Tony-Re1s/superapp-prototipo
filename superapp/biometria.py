@@ -80,7 +80,10 @@ button:disabled { opacity: 0.5; }
 .botoes button { flex: 1; }
 
 /* tema escuro (tela de entrada, antes do login) */
-.sa-bio.escuro { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.14); color: #F2F4F8; }
+.sa-bio.escuro { background: linear-gradient(145deg, rgba(255,255,255,0.13), rgba(255,255,255,0.04));
+  border-color: rgba(255,255,255,0.18); color: #F2F4F8; -webkit-backdrop-filter: blur(16px) saturate(140%); backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 14px 34px rgba(0,0,0,0.38); }
+.sa-bio.escuro .mic { box-shadow: 0 0 0 6px rgba(236,112,0,0.12), 0 10px 26px rgba(236,112,0,0.45), inset 0 1px 0 rgba(255,255,255,0.35); }
 .sa-bio.escuro .titulo, .sa-bio.escuro .chamada b { color: white; }
 .sa-bio.escuro .sub, .sa-bio.escuro .lgpd { color: #B8C0D4; }
 .sa-bio.escuro .balao { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.16); color: white; }
@@ -216,7 +219,7 @@ HTML_VOZ = """
   <div class="topo">
     <button class="mic" title="Falar com a Lia">🎙️<br>LIA</button>
     <div class="chamada"><b>Toque e fale com a Lia</b>
-      <div class="sub">Pergunte sem senha: “qual meu saldo?”. Para pagar: “pagar o piscineiro 300 reais”.</div></div>
+      <div class="sub">Sem senha: “quando vence a fatura?”. Com rosto: “qual meu saldo?”, “pagar o piscineiro 300 reais”.</div></div>
   </div>
   <div class="painel escondido">
     <div class="balao"><div class="quem">Lia</div><div class="fala"></div></div>
@@ -403,19 +406,30 @@ export default function (component) {
     return null;
   }
 
-  // consultas respondidas sem senha (só leitura)
+  // consultas: livres só os lembretes (sem valores nem fornecedores); valores pedem rosto ou senha
   function consulta(cmd, d) {
     const n = norm(cmd);
-    if (TRANSACAO.test(n) || ABRIR_FORTE.test(n)) return null;  // "abrir o cartão" abre a tela; "ver a fatura" só informa
+    if (TRANSACAO.test(n) || ABRIR_FORTE.test(n)) return null;
+    const querValor = /\b(quanto|valor|valores|total|quais|qual)\b/.test(n);
     if (/\b(saldo|quanto (eu )?tenho|quanto tem)\b/.test(n))
-      return `Seu saldo disponível é de ${valorFalado(d.saldo)}.`;
-    if (/\b(fatura|cartao)\b/.test(n) && !/\blimite\b/.test(n))
-      return d.fatura ? `Sua fatura está em ${valorFalado(d.fatura.valor)} e vence dia ${d.fatura.vencimento}.` : "Você não tem fatura aberta.";
+      return { protegido: true, assunto: "Saldo", texto: () => `Seu saldo disponível é de ${valorFalado(D().saldo)}.` };
     if (/\blimite\b/.test(n))
-      return `Você tem ${valorFalado(d.limite_disponivel)} de limite disponível no cartão.`;
+      return { protegido: true, assunto: "Limite do cartão", texto: () => `Você tem ${valorFalado(D().limite_disponivel)} de limite disponível no cartão.` };
+    if (/\b(fatura|cartao)\b/.test(n)) {
+      if (!d.fatura) return { protegido: false, texto: () => "Você não tem fatura em aberto." };
+      if (/\b(quando|vence|vencimento|dia)\b/.test(n) && !/\b(quanto|valor)\b/.test(n))
+        return { protegido: false, texto: () => `A fatura do cartão vence dia ${d.fatura.vencimento}.` };
+      return { protegido: true, assunto: "Valor da fatura", texto: () => `Sua fatura está em ${valorFalado(D().fatura.valor)} e vence dia ${D().fatura.vencimento}.` };
+    }
     if (/\b(contas|boletos?|vence|vencem|vencimentos?|pendentes?)\b|\bconta (a pagar|vencida)/.test(n)) {
-      if (!d.contas.length) return "Você não tem contas pendentes.";
-      return "Suas contas pendentes: " + d.contas.map((c) => `${c.descricao}, ${valorFalado(c.valor)}, ${c.status === "vencida" ? "vencida" : "vence dia " + c.vencimento}`).join("; ") + ". Se quiser, é só dizer: pagar a " + d.contas[0].descricao.split(" ")[0] + ".";
+      const venc = d.contas.filter((c) => c.status === "vencida").length, abertas = d.contas.length - venc;
+      if (!d.contas.length) return { protegido: false, texto: () => "Você não tem contas pendentes." };
+      if (querValor)
+        return { protegido: true, assunto: "Contas a pagar", texto: () => "Suas contas pendentes: " + D().contas.map((c) => `${c.descricao}, ${valorFalado(c.valor)}, ${c.status === "vencida" ? "vencida" : "vence dia " + c.vencimento}`).join("; ") + "." };
+      const partes = [];
+      if (abertas) partes.push(`${abertas} ${abertas === 1 ? "conta a vencer" : "contas a vencer"} nos próximos dias`);
+      if (venc) partes.push(`${venc} ${venc === 1 ? "já vencida" : "já vencidas"}`);
+      return { protegido: false, texto: () => `Lembrete: você tem ${partes.join(" e ")}. Para ver valores, peça que eu confirmo seu rosto.` };
     }
     return null;
   }
@@ -440,9 +454,21 @@ export default function (component) {
       ui.voce.textContent = "🎤 " + cmd;
       if (NAO.test(norm(cmd))) { await falar("Tudo bem, cancelei."); return fimFluxo(); }
 
-      // consulta: responde na hora, sem rosto nem senha
+      // consulta: lembretes respondem na hora; valores (saldo, limite, fatura, contas) pedem rosto ou senha
       const info = consulta(cmd, d);
-      if (info) { status(""); await falar(info); raiz.__set("consulta", { comando: cmd }); return fimFluxo(); }
+      if (info) {
+        status("");
+        if (info.protegido) {
+          ui.op.classList.remove("escondido");
+          $(".f-tipo").textContent = "Consulta"; $(".f-para").textContent = info.assunto;
+          $(".f-chave").textContent = "—"; $(".f-valor").textContent = "•••••";
+          const v = await validar();
+          if (!v) return fimFluxo();
+        }
+        await falar(info.texto());
+        raiz.__set("consulta", { comando: cmd, protegido: !!info.protegido });
+        return fimFluxo();
+      }
 
       // "abrir o extrato", "ver meu cartão": valida o rosto e abre a tela
       const abrir = telaPedida(cmd);
@@ -458,7 +484,7 @@ export default function (component) {
         return;
       }
       if (!TRANSACAO.test(norm(cmd)) && !destinoDe(cmd, d.contatos, d.contas)) {
-        await falar("Posso te dizer o saldo, a fatura, o limite e as contas a vencer, sem senha. Para Pix, pagamentos ou abrir o app, eu confirmo seu rosto antes.");
+        await falar("Sem senha eu te lembro do vencimento da fatura e das contas a vencer. Para saldo, valores, Pix, pagamentos ou abrir o app, eu confirmo seu rosto antes.");
         return fimFluxo();
       }
       let alvo = destinoDe(cmd, d.contatos, d.contas);

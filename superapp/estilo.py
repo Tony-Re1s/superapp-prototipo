@@ -9,7 +9,7 @@ CINZA = "#F4F5F7"
 TEXTO = "#1F2430"
 VERDE = "#1B8A4A"
 VERMELHO = "#C62828"
-VERSAO = "v2026.10.22-lia-consultas"  # mostrada no rodapé para conferir qual versão está publicada
+VERSAO = "v2026.10.22-vidro"  # mostrada no rodapé para conferir qual versão está publicada
 
 CSS = f"""
 <style>
@@ -163,53 +163,83 @@ CSS = f"""
     .st-key-lia_box [data-testid="stChatInput"] {{ background: white; }}
     .sa-lia-titulo {{ color: {AZUL_ESCURO}; font-size: 0.95rem; margin: 2px 0 2px 2px; }}
 
-    /* tela de entrada (antes do login) */
-    .sa-pre-topo {{ display: flex; justify-content: space-between; align-items: center; color: white; font-weight: 600;
-        font-size: 1rem; padding: 10px 2px 6px 2px; }}
-    .sa-pre-topo .ajuda {{ width: 30px; height: 30px; border: 2px solid white; border-radius: 50%; display: flex;
-        align-items: center; justify-content: center; font-weight: 700; }}
-    .st-key-pre_topo {{ justify-content: space-between; padding-top: 6px; }}
-    .st-key-pre_topo [data-testid="stPopover"] button {{ background: transparent !important; border: none !important;
-        color: white !important; padding-left: 0; }}
-    .st-key-pre_topo [data-testid="stPopover"] button p, .st-key-pre_topo [data-testid="stPopover"] button span {{
-        color: white !important; font-weight: 700; font-size: 1.05rem; }}
-    .sa-pre-ajuda {{ width: 30px; height: 30px; border: 2px solid white; border-radius: 50%; display: flex; color: white;
-        align-items: center; justify-content: center; font-weight: 700; }}
-    .sa-token {{ font-size: 2.2rem; font-weight: 800; letter-spacing: 0.25em; color: #00226B; text-align: center; }}
-    .sa-pre-conta {{ display: inline-flex; gap: 14px; align-items: center; background: rgba(255,255,255,0.09);
-        border-radius: 999px; padding: 10px 28px 10px 10px; color: white; margin: 8px 0 18px 0; }}
-    .sa-pre-conta .av {{ width: 52px; height: 52px; border-radius: 50%; background: #EDEFF3; color: #3A3D42;
-        display: flex; align-items: center; justify-content: center; font-size: 1.15rem; }}
+    /* tela de entrada (antes do login): fundo com luzes e botões em vidro fosco */
+    .sa-pre-luz {{ position: fixed; inset: 0; pointer-events: none; z-index: 0;
+        background:
+          radial-gradient(420px 320px at 88% 6%, rgba(236,112,0,0.30), transparent 65%),
+          radial-gradient(520px 460px at -10% 55%, rgba(46,92,255,0.40), transparent 62%),
+          radial-gradient(380px 300px at 100% 95%, rgba(0,160,255,0.22), transparent 65%); }}
+    .st-key-pre_topo {{ justify-content: space-between; padding-top: 6px; position: relative; z-index: 1; }}
+    .st-key-pre_token button {{ background: transparent !important; border: none !important; padding: 0 4px 0 0 !important;
+        min-height: 0 !important; box-shadow: none !important; }}
+    .st-key-pre_token button p, .st-key-pre_token button span {{ color: white !important; font-weight: 700; font-size: 1.02rem; }}
+    .sa-token {{ font-size: 1.05rem; font-weight: 800; letter-spacing: 0.18em; color: white; padding: 3px 10px; border-radius: 10px; background: linear-gradient(145deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05)); -webkit-backdrop-filter: blur(14px) saturate(150%); backdrop-filter: blur(14px) saturate(150%); border: 1px solid rgba(255,255,255,0.20); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), inset 0 -1px 0 rgba(0,0,0,0.25), 0 12px 28px rgba(0,0,0,0.40); }}
+    .sa-pre-ajuda {{ width: 30px; height: 30px; border: 2px solid rgba(255,255,255,0.9); border-radius: 50%; display: flex; color: white;
+        align-items: center; justify-content: center; font-weight: 700; box-shadow: 0 0 14px rgba(255,255,255,0.18); }}
+    .sa-pre-conta {{ display: inline-flex; gap: 14px; align-items: center; border-radius: 999px; padding: 10px 28px 10px 10px;
+        color: white; margin: 8px 0 18px 0; position: relative; z-index: 1; background: linear-gradient(145deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05)); -webkit-backdrop-filter: blur(14px) saturate(150%); backdrop-filter: blur(14px) saturate(150%); border: 1px solid rgba(255,255,255,0.20); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), inset 0 -1px 0 rgba(0,0,0,0.25), 0 12px 28px rgba(0,0,0,0.40); }}
+    .sa-pre-conta .av {{ width: 52px; height: 52px; border-radius: 50%; background: linear-gradient(145deg, #FFFFFF, #D9DEE8); color: #3A3D42;
+        display: flex; align-items: center; justify-content: center; font-size: 1.15rem; box-shadow: 0 4px 12px rgba(0,0,0,0.35); }}
     .sa-pre-conta b {{ font-size: 1.15rem; }}
     .sa-pre-conta .cpf {{ font-size: 0.82rem; opacity: 0.85; }}
     .sa-pre-conta .troca {{ font-size: 0.82rem; font-weight: 700; }}
-    .sa-pre-slogan {{ color: white; font-weight: 800; font-size: 1.7rem; line-height: 1.15; margin: 4vh 0 14px 4px; }}
+    .sa-pre-slogan {{ color: white; font-weight: 800; font-size: 1.7rem; line-height: 1.15; margin: 4vh 0 14px 4px;
+        text-shadow: 0 2px 18px rgba(0,0,0,0.45); position: relative; z-index: 1; }}
     .sa-pre-titulo {{ color: white; font-weight: 800; font-size: 1.3rem; margin: 6px 0 8px 2px; }}
     .st-key-pre_atalhos {{ margin-top: 22px; }}
-    .st-key-pre_atalhos button {{
-        background: transparent !important; border: none !important; color: white !important; padding: 0 !important;
-        min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 8px;
-    }}
     .st-key-pre_atalhos > .stElementContainer {{ flex: 1 1 0 !important; min-width: 0 !important; }}
-    .st-key-pre_atalhos button, .st-key-pre_atalhos button:hover, .st-key-pre_atalhos button:focus {{ box-shadow: none !important; outline: none; }}
+    .st-key-pre_atalhos button, .st-key-pre_atalhos button:hover, .st-key-pre_atalhos button:focus {{
+        background: transparent !important; border: none !important; color: white !important; padding: 0 !important;
+        min-height: 0; box-shadow: none !important; outline: none; }}
     .st-key-pre_atalhos button > div {{ width: 100%; }}
     .st-key-pre_atalhos button span[data-has-shortcut] {{ display: flex !important; flex-direction: column !important;
         align-items: center !important; gap: 8px; width: 100%; }}
     .st-key-pre_atalhos button span[data-has-shortcut] > span:first-child {{
         width: 72px; height: 72px; display: flex !important; align-items: center; justify-content: center; flex-shrink: 0;
-        background: rgba(255,255,255,0.10); border-radius: 18px; margin: 0 !important;
-    }}
-    .st-key-pre_atalhos button [data-testid="stIconMaterial"] {{ font-size: 2rem !important; color: white; margin: 0 !important; }}
-    .st-key-pre_atalhos button:hover span[data-has-shortcut] > span:first-child {{ background: rgba(255,255,255,0.18); }}
+        border-radius: 20px; margin: 0 !important; transition: transform .15s ease, box-shadow .15s ease; background: linear-gradient(145deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05)); -webkit-backdrop-filter: blur(14px) saturate(150%); backdrop-filter: blur(14px) saturate(150%); border: 1px solid rgba(255,255,255,0.20); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), inset 0 -1px 0 rgba(0,0,0,0.25), 0 12px 28px rgba(0,0,0,0.40); }}
+    .st-key-pre_atalhos button [data-testid="stIconMaterial"] {{ font-size: 2rem !important; color: white; margin: 0 !important;
+        filter: drop-shadow(0 2px 6px rgba(0,0,0,0.35)); }}
+    .st-key-pre_atalhos button:hover span[data-has-shortcut] > span:first-child {{ transform: translateY(-2px);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 16px 32px rgba(0,0,0,0.45), 0 0 18px rgba(120,160,255,0.25); }}
     .st-key-pre_atalhos button p {{ color: white !important; font-size: 0.86rem; white-space: normal !important; text-align: center;
-        line-height: 1.2; overflow: visible !important; text-overflow: clip !important; }}
+        line-height: 1.2; overflow: visible !important; text-overflow: clip !important; text-shadow: 0 1px 6px rgba(0,0,0,0.5); }}
     .st-key-pre_atalhos button div {{ overflow: visible !important; text-overflow: clip !important; white-space: normal !important; }}
     .st-key-pre_acessar button, .st-key-pre_voltar button {{
-        background: rgba(255,255,255,0.06) !important; border: 1px solid rgba(255,255,255,0.14) !important;
-        color: white !important; border-radius: 16px !important; min-height: 56px; justify-content: flex-start;
-    }}
-    .st-key-pre_acessar button p, .st-key-pre_voltar button p {{ color: white !important; font-size: 1.1rem; font-weight: 700; }}
+        color: white !important; border-radius: 18px !important; min-height: 56px; background: linear-gradient(145deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05)); -webkit-backdrop-filter: blur(14px) saturate(150%); backdrop-filter: blur(14px) saturate(150%); border: 1px solid rgba(255,255,255,0.20); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), inset 0 -1px 0 rgba(0,0,0,0.25), 0 12px 28px rgba(0,0,0,0.40); }}
+    .st-key-pre_acessar button p, .st-key-pre_voltar button p, .st-key-pre_acessar button span {{ color: white !important; font-size: 1.1rem; font-weight: 700; }}
     .st-key-pre_acessar {{ margin-top: 10px; }}
+
+    /* menu do app em blocos com ícone, no desenho da tela de entrada */
+    div.st-key-menu_app[data-testid="stHorizontalBlock"] {{ flex-wrap: wrap !important; }}
+    .st-key-menu_app {{
+        flex-wrap: wrap !important; row-gap: 10px !important; padding: 14px 8px 10px 8px; border-radius: 22px; margin: 4px 0 6px 0;
+        background:
+          radial-gradient(260px 160px at 90% 0%, rgba(236,112,0,0.28), transparent 70%),
+          radial-gradient(300px 220px at 0% 100%, rgba(46,92,255,0.40), transparent 70%),
+          linear-gradient(160deg, #061447 0%, #020A2E 100%);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 12px 28px rgba(2,10,46,0.35);
+    }}
+    div.st-key-menu_app[data-testid="stHorizontalBlock"] > .stElementContainer {{ flex: 0 0 calc(25% - 8px) !important;
+        min-width: 0 !important; max-width: calc(25% - 8px); }}
+    .st-key-menu_app button, .st-key-menu_app button:hover, .st-key-menu_app button:focus {{
+        background: transparent !important; border: none !important; padding: 0 !important; min-height: 0;
+        box-shadow: none !important; outline: none; }}
+    .st-key-menu_app button > div {{ width: 100%; }}
+    .st-key-menu_app button span[data-has-shortcut] {{ display: flex !important; flex-direction: column !important;
+        align-items: center !important; gap: 5px; width: 100%; }}
+    .st-key-menu_app button span[data-has-shortcut] > span:first-child {{
+        width: 52px; height: 52px; display: flex !important; align-items: center; justify-content: center; border-radius: 16px;
+        margin: 0 !important; transition: transform .15s ease; background: linear-gradient(145deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05)); -webkit-backdrop-filter: blur(14px) saturate(150%); backdrop-filter: blur(14px) saturate(150%); border: 1px solid rgba(255,255,255,0.20); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), inset 0 -1px 0 rgba(0,0,0,0.25), 0 12px 28px rgba(0,0,0,0.40); }}
+    .st-key-menu_app button [data-testid="stIconMaterial"] {{ font-size: 1.55rem !important; color: white; margin: 0 !important;
+        filter: drop-shadow(0 2px 5px rgba(0,0,0,0.35)); }}
+    .st-key-menu_app button:hover span[data-has-shortcut] > span:first-child {{ transform: translateY(-2px); }}
+    [class*="st-key-nav_on_"] button span[data-has-shortcut] > span:first-child {{
+        background: linear-gradient(145deg, #FF8A1F, #C25C00) !important; border-color: rgba(255,200,150,0.6) !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 8px 20px rgba(236,112,0,0.55) !important; }}
+    .st-key-menu_app button p {{ color: #E6EBF5 !important; font-size: 0.74rem; white-space: nowrap; text-align: center;
+        overflow: visible !important; text-overflow: clip !important; }}
+    [class*="st-key-nav_on_"] button p {{ color: white !important; font-weight: 700; }}
+    .st-key-menu_app button div {{ overflow: visible !important; text-overflow: clip !important; }}
 
     /* insight da IA em linhas */
     .sa-insight .sa-ins-linha {{ display: flex; justify-content: space-between; align-items: center; gap: 10px;

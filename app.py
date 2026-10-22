@@ -38,23 +38,12 @@ else:
 
 # ----------------------------------------------------------------------------- menu (zona do polegar)
 # O menu é montado pelos produtos que a pessoa tem; conta corrente é fixa.
-# O valor do widget é sincronizado com ss.tela ANTES de o widget ser criado, assim tanto o toque na
-# pílula quanto a navegação por código (cards, atalhos, assistente) funcionam.
+# Cada bloco chama ir_para no clique; a navegação por código (cards, atalhos, Lia) usa o mesmo ir_para.
 telas_menu = telas.telas_disponiveis()
 FORA_DO_MENU = {"Avalie"}  # telas abertas por botão, sem pílula no menu
 if ss.tela not in telas_menu and ss.tela not in FORA_DO_MENU:
     ss.tela = "Início"
-opcoes = [f"{telas.ICONES[t]} {t}" for t in telas_menu]
-ss["nav"] = f"{telas.ICONES[ss.tela]} {ss.tela}" if ss.tela in telas_menu else None
-
-
-def _navegar():
-    escolha = ss.get("nav")
-    if escolha:
-        telas.ir_para(escolha.split(" ", 1)[1])
-
-
-st.pills("Navegação", opcoes, key="nav", on_change=_navegar, label_visibility="collapsed")
+telas.menu_app(telas_menu)  # blocos com ícone, no desenho da tela de entrada
 
 # ----------------------------------------------------------------------------- conteúdo
 TELAS = {

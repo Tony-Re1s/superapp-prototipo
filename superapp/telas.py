@@ -100,6 +100,23 @@ def telas_disponiveis() -> list[str]:
     return telas
 
 
+# ícones do menu (mesmo desenho dos atalhos da tela de entrada)
+ICONES_MENU = {"Início": ":material/home:", "Pix": ":material/currency_exchange:", "Pagar": ":material/barcode:",
+               "Extrato": ":material/receipt_long:", "Cartão": ":material/credit_card:", "Investir": ":material/trending_up:",
+               "Gastos": ":material/donut_small:", "Avisos": ":material/notifications:", "Assistente": ":material/auto_awesome:",
+               "Segurança": ":material/shield:", "Crédito": ":material/account_balance:", "Seguros": ":material/umbrella:"}
+
+
+def menu_app(telas_menu: list[str]) -> None:
+    """Menu do app em blocos com ícone (vidro fosco), no mesmo desenho da tela de entrada."""
+    ss = st.session_state
+    with st.container(key="menu_app", horizontal=True, gap="small"):
+        for t in telas_menu:
+            estado = "on" if t == ss.tela else "off"
+            st.button(t, icon=ICONES_MENU.get(t, ":material/apps:"), key=f"nav_{estado}_{_chave(t)}",
+                      width="stretch", on_click=ir_para, args=(t,))
+
+
 # menus que abrem com verificação de rosto (biometria no aparelho) ou senha
 PROTEGIDAS = {"Pix", "Pagar", "Cartão", "Extrato", "Investir", "Gastos", "Crédito", "Seguros"}
 
@@ -344,16 +361,16 @@ def tela_pre_login() -> None:
     ss = st.session_state
     p = persona()
     st.markdown('<style>.stApp{background:linear-gradient(180deg,#02040F 0%,#061447 55%,#020A2E 100%) !important;}'
-                '.sa-aviso{color:#8E98B3 !important;}</style>', unsafe_allow_html=True)
-    # Token sem senha (só gera o código; não movimenta nada)
+                '.sa-aviso{color:#8E98B3 !important;}</style><div class="sa-pre-luz"></div>', unsafe_allow_html=True)
+    # Token sem senha e compacto: toca e o código aparece ao lado (não movimenta nada)
     with st.container(key="pre_topo", horizontal=True, vertical_alignment="center"):
-        with st.popover("Token", icon=":material/key:"):
-            agora = int(time.time())
-            codigo = int(hashlib.sha256(f"{ss.sessao}-{agora // 30}".encode()).hexdigest(), 16) % 1_000_000
-            st.markdown(f'<div class="sa-token">{codigo:06d}</div>', unsafe_allow_html=True)
-            st.caption(f"Válido por mais {30 - agora % 30} s. Sem senha: o token só gera o código "
-                       "para confirmar operações em outro canal; ele não movimenta sua conta.")
-            st.button("Gerar novo", key="pre_token_novo", width="stretch")
+        with st.container(key="pre_token_box", horizontal=True, vertical_alignment="center", gap="small", width="content"):
+            st.button("Token", icon=":material/key:", key="pre_token",
+                      on_click=lambda: ss.update(token_visivel=not ss.get("token_visivel")))
+            if ss.get("token_visivel"):
+                agora = int(time.time())
+                codigo = int(hashlib.sha256(f"{ss.sessao}-{agora // 30}".encode()).hexdigest(), 16) % 1_000_000
+                st.markdown(f'<div class="sa-token">{codigo:06d}</div>', unsafe_allow_html=True, width="content")
         st.markdown('<div class="sa-pre-ajuda">?</div>', unsafe_allow_html=True, width="content")
     st.markdown(
         f'<div class="sa-pre-conta"><div class="av">{ss.nome[:1]}{p["nome"].split(" ")[-1][:1]}</div>'
@@ -377,7 +394,7 @@ def tela_pre_login() -> None:
 
     # Lia por voz direto da tela de entrada: consultas sem senha; Pix, contas e abrir telas com rosto (ou senha)
     r = _lia_voz("lia_voz_pre", tema="escuro", chamada="Fale com a Lia, sem entrar",
-                 dica="Consultas sem senha: “qual meu saldo?”, “quando vence a fatura?”. Para pagar ou abrir o app, ela confirma seu rosto.")
+                 dica="Sem senha: “quando vence a fatura?”, “tenho contas a vencer?”. Saldo, valores e pagamentos: ela confirma seu rosto.")
     if r.consulta:
         evento("Entrada", "lia_consulta", {"comando": r.consulta.get("comando", "")})
     if r.abrir:
