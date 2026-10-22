@@ -2,9 +2,26 @@
 
 Execute localmente com:  streamlit run app.py
 """
+import importlib
+import os
+
 import streamlit as st
 
-from superapp import estilo, telas
+from superapp import biometria, dados, db, estilo, ia, telas
+
+# O Streamlit Cloud às vezes republica o app.py mas mantém em memória versões antigas dos módulos do
+# pacote (erro "AttributeError: module 'superapp.telas' has no attribute ..."). Recarrega cada módulo
+# cujo arquivo mudou desde a última carga — dependências primeiro, telas por último.
+for _mod in (dados, db, estilo, ia, biometria, telas):
+    _mtime = os.path.getmtime(_mod.__file__)
+    if getattr(_mod, "_sa_mtime", None) != _mtime:
+        if hasattr(_mod, "_sa_mtime"):
+            importlib.reload(_mod)
+        _mod._sa_mtime = _mtime
+if not hasattr(telas, "tela_pre_login"):  # módulos antigos carregados antes desta checagem existir
+    for _mod in (dados, db, estilo, ia, biometria, telas):
+        importlib.reload(_mod)
+        _mod._sa_mtime = os.path.getmtime(_mod.__file__)
 
 st.set_page_config(page_title="Superapp", page_icon="🟠", layout="centered",
                    initial_sidebar_state="collapsed")
