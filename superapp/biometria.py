@@ -161,15 +161,43 @@ function digitos(t) {
   return s;
 }
 
+// voz da Lia: a voz feminina mais natural disponível no aparelho (as listas mudam por sistema)
+const VOZES_FEMININAS = [
+  /francisca.*(natural|online|neural)/i, /thalita.*(natural|online|neural)/i, /(natural|neural).*(francisca|thalita|brenda|elza|giovanna|leila|leticia|manuela|yara)/i,
+  /luciana.*(premium|aprimorad|melhorad|enhanced)/i, /google portugu[eê]s do brasil/i, /luciana/i, /francisca/i, /thalita/i,
+  /maria/i, /vit[oó]ria/i, /fernanda/i, /raquel/i, /joana/i, /catarina/i, /female|feminin|mulher/i,
+];
+const VOZES_MASCULINAS = /felipe|daniel|antonio|ant[oô]nio|ricardo|reed|eddy|rocko|grandpa|jo[aã]o|duarte|humberto|fabio|f[aá]bio|julio|donato|nicolau|valerio|male\b|masculin/i;
+let VOZ_LIA = null;
+function escolherVoz() {
+  if (!("speechSynthesis" in window)) return null;
+  const pt = speechSynthesis.getVoices().filter((v) => /^pt/i.test(v.lang || ""));
+  const br = pt.filter((v) => /br/i.test(v.lang)).concat(pt.filter((v) => !/br/i.test(v.lang)));
+  for (const re of VOZES_FEMININAS) {
+    const v = br.find((x) => re.test(x.name) && !VOZES_MASCULINAS.test(x.name));
+    if (v) return v;
+  }
+  return br.find((x) => !VOZES_MASCULINAS.test(x.name)) || br[0] || null;
+}
+if ("speechSynthesis" in window) {
+  VOZ_LIA = escolherVoz();
+  try { speechSynthesis.addEventListener("voiceschanged", () => { VOZ_LIA = escolherVoz(); }); } catch (e) {}
+}
+function prepararVoz(u) {
+  u.lang = "pt-BR"; u.rate = 1.0; u.pitch = 1.08;      // ritmo natural, timbre levemente mais agudo
+  const v = VOZ_LIA || escolherVoz();
+  if (v) { u.voice = v; u.lang = v.lang; }
+  // sem voz feminina instalada: sobe um pouco o tom da voz padrão para não soar masculina
+  if (!v || VOZES_MASCULINAS.test(v.name)) u.pitch = 1.35;
+}
+
 // voz simples (Lia): fala em pt-BR e ouve uma resposta; devolve null se o navegador não deixar
 function falarLia(texto) {
   return new Promise((res) => {
     if (!("speechSynthesis" in window)) return res(false);
     let feito = false; const fim = (ok) => { if (!feito) { feito = true; res(ok); } };
     try {
-      const u = new SpeechSynthesisUtterance(texto); u.lang = "pt-BR"; u.rate = 1.05;
-      const voz = speechSynthesis.getVoices().find((v) => (v.lang || "").toLowerCase().startsWith("pt"));
-      if (voz) u.voice = voz;
+      const u = new SpeechSynthesisUtterance(texto); prepararVoz(u);
       u.onend = () => fim(true); u.onerror = () => fim(false);
       speechSynthesis.cancel(); speechSynthesis.speak(u);
     } catch (e) { fim(false); }
@@ -384,9 +412,7 @@ export default function (component) {
       if (!("speechSynthesis" in window)) return res();
       let feito = false; const fim = () => { if (!feito) { feito = true; res(); } };
       try {
-        const u = new SpeechSynthesisUtterance(texto); u.lang = "pt-BR"; u.rate = 1.05;
-        const voz = speechSynthesis.getVoices().find((v) => (v.lang || "").toLowerCase().startsWith("pt"));
-        if (voz) u.voice = voz;
+        const u = new SpeechSynthesisUtterance(texto); prepararVoz(u);
         u.onend = fim; u.onerror = fim;
         speechSynthesis.cancel(); speechSynthesis.speak(u);
       } catch (e) { fim(); }
