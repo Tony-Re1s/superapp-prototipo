@@ -9,7 +9,7 @@ CINZA = "#F4F5F7"
 TEXTO = "#1F2430"
 VERDE = "#1B8A4A"
 VERMELHO = "#C62828"
-VERSAO = "v2026.10.22-entrada-v3"  # mostrada no rodapé para conferir qual versão está publicada
+VERSAO = "v2026.10.22-lia-atendente"  # mostrada no rodapé para conferir qual versão está publicada
 
 CSS = f"""
 <style>

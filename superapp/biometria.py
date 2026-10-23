@@ -466,27 +466,85 @@ const TELAS_VOZ = [[/\bextrato\b|movimenta/, "Extrato", "o extrato"], [/\bpix\b/
   [/\bcartao\b|\bfatura\b|virtual/, "Cartão", "o cartão"], [/\bpagamento|\bcontas?\b|boleto/, "Pagar", "os pagamentos"],
   [/invest/, "Investir", "os investimentos"], [/\bgastos?\b/, "Gastos", "os gastos"], [/inicio|\bapp\b|conta corrente|minha conta/, "Início", "a sua conta"]];
 
-function valorDe(t) {
-  const n = norm(t);
-  const m = n.match(/(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?/);
-  if (m) return parseFloat(m[1].replace(/\./g, "") + "." + (m[2] || "0"));
-  let melhor = null, tot = 0, cur = 0, emNumero = false;
-  const fecha = () => { if (emNumero) { const v = tot + cur; if (melhor === null || v > melhor) melhor = v; } tot = 0; cur = 0; emNumero = false; };
-  for (const w of n.split(/[^a-z]+/)) {
-    if (w in NUM) { cur += NUM[w]; emNumero = true; }
-    else if (w === "mil") { tot += (cur || 1) * 1000; cur = 0; emNumero = true; }
-    else if (w === "e" && emNumero) { /* "trezentos e cinquenta" */ }
-    else fecha();
+// valor: só aceita número com contexto de dinheiro ("300 reais", "de 50", "R$ 49,90") ou, na resposta direta
+// a "qual o valor?", qualquer número. "um/uma" sozinho é artigo ("manda um Pix"), não valor.
+const PALAVRA_DINHEIRO = /^(reais|real|conto|contos|pila|mil)$/;
+function valorDe(t, livre = false) {
+  const n = " " + norm(t).replace(/r\$\s*/g, " rs ") + " ";
+  const re = /(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?/g;
+  const cands = []; let m;
+  while ((m = re.exec(n))) {
+    const inteiro = m[1].replace(/\./g, "");
+    if (inteiro.length >= 7) continue;                         // telefone, conta, chave: não é valor
+    let v = parseFloat(inteiro + "." + (m[2] || "0"));
+    const antes = n.slice(Math.max(0, m.index - 7), m.index), depois = n.slice(m.index + m[0].length, m.index + m[0].length + 8);
+    if (/^\s*mil\b/.test(depois)) v *= 1000;
+    const ctx = /\b(rs|de|valor|por)\s*$/.test(antes) || /^\s*(reais|real|conto|contos|mil)\b/.test(depois);
+    cands.push({ v, ctx });
   }
-  fecha();
+  const dig = cands.find((c) => c.ctx) || ((livre || cands.length === 1) ? cands[0] : null);
+  if (dig) return dig.v;
+  const toks = n.split(/[^a-z]+/).filter(Boolean);
+  let melhor = null;
+  for (let i = 0; i < toks.length; i++) {
+    if (!(toks[i] in NUM) && toks[i] !== "mil") continue;
+    let tot = 0, cur = 0, j = i, soArtigo = true;
+    while (j < toks.length && ((toks[j] in NUM) || toks[j] === "mil" || (toks[j] === "e" && (toks[j + 1] in NUM)))) {
+      const w = toks[j];
+      if (w in NUM) { cur += NUM[w]; if (w !== "um" && w !== "uma") soArtigo = false; }
+      else if (w === "mil") { tot += (cur || 1) * 1000; cur = 0; soArtigo = false; }
+      j++;
+    }
+    const prox = toks[j] || "", ant = toks[i - 1] || "";
+    const ctx = PALAVRA_DINHEIRO.test(prox) || /^(de|valor|por|rs)$/.test(ant);
+    if (soArtigo && !/^(real|reais)$/.test(prox)) { i = j; continue; }
+    if (ctx || livre) { const v = tot + cur; if (melhor === null || v > melhor) melhor = v; }
+    i = j;
+  }
   return melhor;
 }
+// chave Pix: e-mail (também "joao arroba gmail ponto com"), CPF, celular, CNPJ ou aleatória
+function chaveDe(t) {
+  const bruto = (t || "").trim(), n = norm(bruto);
+  const em = bruto.match(/[\w.+-]+@[\w-]+\.[\w.]+/);
+  if (em) return { tipo: "e-mail", valor: em[0].toLowerCase() };
+  if (/\barroba\b/.test(n)) {
+    const e = n.replace(/\s*arroba\s*/g, "@").replace(/\s*ponto\s*/g, ".").replace(/\s+/g, "");
+    if (/^[\w.+-]+@[\w-]+\.[\w.]+$/.test(e)) return { tipo: "e-mail", valor: e };
+  }
+  const al = bruto.match(/[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}/i);
+  if (al) return { tipo: "aleatória", valor: al[0] };
+  const dg = digitos(bruto);
+  if (dg.length === 14) return { tipo: "CNPJ", valor: dg.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5") };
+  if (dg.length === 11 && /celular|telefone|fone|whats/.test(n)) return { tipo: "celular", valor: dg.replace(/(\d{2})(\d{5})(\d{4})/, "($1) $2-$3") };
+  if (dg.length === 11) return { tipo: "CPF", valor: dg.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4") };
+  if (dg.length === 10) return { tipo: "celular", valor: dg.replace(/(\d{2})(\d{4})(\d{4})/, "($1) $2-$3") };
+  return null;
+}
+const BANCOS = [[/itau/, "Itaú"], [/bradesco/, "Bradesco"], [/santander/, "Santander"], [/caixa/, "Caixa"],
+  [/banco do brasil|\bbb\b/, "Banco do Brasil"], [/nubank|\bnu\b/, "Nubank"], [/inter\b/, "Inter"], [/\bc6\b|c seis/, "C6 Bank"],
+  [/picpay|pic pay/, "PicPay"], [/mercado pago/, "Mercado Pago"], [/sicoob/, "Sicoob"], [/sicredi/, "Sicredi"], [/btg/, "BTG"],
+  [/original/, "Original"], [/safra/, "Safra"], [/neon/, "Neon"], [/pagbank|pag bank|pagseguro/, "PagBank"], [/superapp/, "Superapp"]];
+function bancoDe(t) {
+  const n = norm(t);
+  for (const [re, nome] of BANCOS) if (re.test(n)) return nome;
+  const limpo = n.replace(/\b(banco|o|do|da|e|eh|é)\b/g, " ").trim();
+  return limpo.length >= 2 && limpo.length <= 30 && !/\d/.test(limpo) ? cap(limpo) : null;
+}
+const agenciaDe = (t) => { const d = digitos(t); return d.length >= 3 && d.length <= 5 ? d : null; };
+const contaDe = (t) => { const d = digitos(t); return d.length >= 4 && d.length <= 13 ? d.slice(0, -1) + "-" + d.slice(-1) : null; };
+const CANCELAR = /\b(cancel\w*|desist\w*|para tudo|esquece|deixa pra la)\b/;
 // valor para a Lia falar: "300 reais", "119 reais e 90 centavos"
 function valorFalado(v) {
   const r = Math.floor(v), c = Math.round((v - r) * 100);
   return r.toLocaleString("pt-BR") + (r === 1 ? " real" : " reais") + (c ? ` e ${c} centavos` : "");
 }
 const cap = (s) => s.replace(/\b\w/g, (c) => c.toUpperCase());
+// devolve o nome como foi dito (com acento): "joao" → "João", procurando a palavra no texto original
+function comoDito(original, nomeNorm) {
+  const palavras = (original || "").split(/[^A-Za-zÀ-ÿ]+/).filter(Boolean);
+  return nomeNorm.split(" ").map((w) => { const p = palavras.find((x) => norm(x) === w); return p ? p.charAt(0).toUpperCase() + p.slice(1).toLowerCase() : cap(w); }).join(" ");
+}
 function destinoDe(t, contatos, contas) {
   const n = " " + norm(t) + " ";
   for (const c of contas) {
@@ -501,11 +559,11 @@ function destinoDe(t, contatos, contas) {
     const extras = norm((ct.nome.match(/\((.*?)\)/) || ["", ""])[1]).split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && w !== "seu" && w !== "dona");
     if (toks.concat(extras).some((w) => n.includes(" " + w))) return { tipo: "pix", contato: ct };
   }
-  const m = norm(t).match(/\b(?:para|pra|pro|ao|a|o)\s+([a-z]+(?:\s+[a-z]+)?)/);
-  const ign = /^(conta|valor|pix|de|reais|um|uma)$/;
+  const m = norm(t).match(/\b(?:para|pra|pro|ao|a|o)\s+(?:(?:meu|minha|seu|sua|o|a)\s+)?([a-z]+(?:\s+[a-z]+)?)/);
+  const ign = /^(conta|valor|pix|de|reais|real|um|uma|transferencia|transferir|pagamento|boleto|fatura|cartao|e|no|na|com)$/;
   if (m && !ign.test(m[1].split(" ")[0])) {
     const nome = m[1].split(/\s+/).filter((w) => !ign.test(w) && !(w in NUM)).join(" ");
-    if (nome) return { tipo: "pix", contato: { nome: cap(nome), chave: "nova chave — confirmar", banco: "", novo: true } };
+    if (nome) return { tipo: "pix", contato: { nome: comoDito(t, nome), chave: "", banco: "", novo: true } };
   }
   return null;
 }
@@ -682,37 +740,104 @@ export default function (component) {
         await falar("Sem senha eu te lembro do vencimento da fatura e das contas a vencer. Para saldo, valores, Pix, pagamentos ou abrir o app, eu confirmo seu rosto antes.");
         return fimFluxo();
       }
+      // atendente: confere cada informação e pergunta o que faltar (destinatário, chave ou dados bancários, valor)
+      const cancelou = async () => { status("Operação cancelada", "alerta"); await falar("Tudo bem, cancelei. Não fiz nenhuma operação."); return fimFluxo(); };
+      async function perguntar(fala, placeholder, ler, { tipo = "text", erro = "Não entendi. Pode repetir, por favor?" } = {}) {
+        await falar(fala);
+        for (let t = 1; t <= 2; t++) {
+          const r = await resposta({ placeholder, tipo });
+          ui.voce.textContent = (r.origem === "voz" ? "🎤 " : "") + (tipo === "password" ? "••••" : r.v);
+          if (CANCELAR.test(norm(r.v))) return { cancelado: true };
+          const v = ler(r.v);
+          if (v !== null && v !== undefined && v !== "") return { v, bruto: r.v };
+          if (t === 1) await falar(erro);
+        }
+        return null;
+      }
       let alvo = destinoDe(cmd, d.contatos, d.contas);
-      let valor = valorDe(cmd);
+      let valor = alvo && alvo.tipo === "conta" ? alvo.conta.valor : valorDe(cmd);
       if (!alvo) {
-        await falar("Para quem é o pagamento?");
-        const r = (await resposta({ placeholder: "Nome do contato ou conta" })).v;
-        ui.voce.textContent = "🎤 " + r; cmd += " para " + r;
-        alvo = destinoDe(" para " + r, d.contatos, d.contas);
-        if (!valor) valor = valorDe(r);
+        const r = await perguntar("Para quem é o Pix?", "Nome do contato ou conta", (t) => {
+          const a = destinoDe(" para " + t, d.contatos, d.contas);
+          if (a) return a;
+          const nome = norm(t).replace(/^(para|pra|pro|o|a|ao)\s+/, "").replace(/\b(meu|minha)\s+/, "").replace(/[^a-z ]/g, "").trim();
+          return nome && nome.split(" ").length <= 4 ? { tipo: "pix", contato: { nome: comoDito(t, nome), chave: "", banco: "", novo: true } } : null;
+        });
+        if (!r) { await falar("Não consegui entender o destinatário. Vamos começar de novo quando quiser."); return fimFluxo(); }
+        if (r.cancelado) return cancelou();
+        alvo = r.v; cmd += " para " + r.bruto;
+        if (alvo.tipo === "conta") valor = alvo.conta.valor; else if (!valor) valor = valorDe(r.bruto);
       }
-      if (!alvo) { await falar("Não encontrei esse contato. Tente de novo dizendo o nome como está nos seus favoritos."); return fimFluxo(); }
-      const op = alvo.tipo === "conta"
-        ? { tipo: "conta", nome: alvo.conta.descricao, chave: "Conta a pagar · vence " + alvo.conta.vencimento, banco: "", valor: alvo.conta.valor, descricao: alvo.conta.descricao }
-        : { tipo: "pix", nome: alvo.contato.nome, chave: alvo.contato.chave, banco: alvo.contato.banco, valor, novo: !!alvo.contato.novo };
-      ficha(op);
-      if (!op.valor) {
-        await falar(`Qual o valor do Pix para ${op.nome.split(" (")[0]}?`);
-        const r = (await resposta({ placeholder: "Valor, ex.: 300" })).v;
-        ui.voce.textContent = "🎤 " + r; op.valor = valorDe(r); cmd += " " + r; ficha(op);
-        if (!op.valor) { await falar("Não entendi o valor. Vamos tentar de novo?"); return fimFluxo(); }
+      let op;
+      if (alvo.tipo === "conta") {
+        op = { tipo: "conta", nome: alvo.conta.descricao, chave: "Conta a pagar · vence " + alvo.conta.vencimento, banco: "", valor: alvo.conta.valor, descricao: alvo.conta.descricao };
+        ficha(op);
+      } else {
+        const ct = alvo.contato;
+        op = { tipo: "pix", nome: ct.nome, chave: ct.chave || "", banco: ct.banco || "", valor, novo: !!ct.novo };
+        const curto = op.nome.split(" (")[0];
+        ficha(op);
+        if (op.novo) {
+          status("Destinatário novo · não está nos seus contatos", "alerta");
+          $(".f-chave").textContent = "a informar";
+          const r = await perguntar(`Atenção: ${curto} não está nos seus contatos salvos. Você tem a chave Pix, ou prefere informar banco, agência e conta?`,
+            "Chave Pix, ou diga: banco", (t) => {
+              const k = chaveDe(t); if (k) return { k };
+              const n = norm(t);
+              if (/\b(banco|agencia|conta|ted|dados)\b/.test(n) || /^\s*nao\b/.test(n)) return { banco: true };
+              if (/\b(chave|pix|cpf|celular|telefone|email|e-mail)\b/.test(n)) return { pedirChave: true };
+              return null;
+            }, { erro: "Diga a chave Pix, como CPF, celular ou e-mail. Ou diga banco, para informar agência e conta." });
+          if (!r) { await falar("Sem a chave ou os dados bancários eu não consigo enviar. Cancelei."); return fimFluxo(); }
+          if (r.cancelado) return cancelou();
+          let k = r.v.k;
+          if (r.v.pedirChave) {
+            const c = await perguntar("Pode dizer a chave Pix: CPF, celular com DDD, e-mail ou chave aleatória.", "Chave Pix", chaveDe,
+              { erro: "Não reconheci essa chave. Diga o CPF com 11 números, o celular com DDD ou o e-mail." });
+            if (!c) { await falar("Não consegui confirmar a chave. Cancelei para sua segurança."); return fimFluxo(); }
+            if (c.cancelado) return cancelou();
+            k = c.v;
+          }
+          if (k) {
+            op.chave = `${k.tipo}: ${k.valor}`; op.banco = "";
+            const fim = digitos(k.valor).slice(-4);   // em voz alta, só o final (privacidade)
+            op.dadoFalado = k.tipo === "e-mail" || k.tipo === "aleatória" ? `chave ${k.tipo} ${k.valor}` : `chave ${k.tipo} terminada em ${fim.split("").join(" ")}`;
+          }
+          else {
+            const b = await perguntar("Qual é o banco?", "Ex.: Itaú, Bradesco, Nubank", bancoDe);
+            if (!b || b.cancelado) return b ? cancelou() : (await falar("Não entendi o banco. Cancelei."), fimFluxo());
+            op.banco = b.v; ficha(op);
+            const ag = await perguntar("Qual é a agência? Só os números.", "Agência", agenciaDe, { erro: "A agência tem de 3 a 5 números. Pode repetir?" });
+            if (!ag || ag.cancelado) return ag ? cancelou() : (await falar("Não entendi a agência. Cancelei."), fimFluxo());
+            const cc = await perguntar("E o número da conta, com o dígito?", "Conta com dígito", contaDe, { erro: "Não entendi a conta. Diga os números, com o dígito no final." });
+            if (!cc || cc.cancelado) return cc ? cancelou() : (await falar("Não entendi a conta. Cancelei."), fimFluxo());
+            op.chave = `Ag ${ag.v} · Conta ${cc.v}`;
+            const [ccNum, ccDig] = cc.v.split("-");
+            op.dadoFalado = `${op.banco}, agência ${ag.v.split("").join(" ")}, conta ${ccNum.split("").join(" ")}, dígito ${ccDig}`;
+          }
+          ficha(op); status("Destinatário novo · dados informados", "alerta");
+        }
+        if (!op.valor) {
+          const r = await perguntar(`Qual o valor do Pix para ${curto}?`, "Valor, ex.: 300", (t) => { const v = valorDe(t, true); return v && v > 0 ? v : null; },
+            { erro: "Não entendi o valor. Diga, por exemplo, trezentos reais." });
+          if (!r) { await falar("Não consegui entender o valor. Cancelei."); return fimFluxo(); }
+          if (r.cancelado) return cancelou();
+          op.valor = r.v; ficha(op);
+        }
       }
-      if (op.valor > d.saldo) { status("Saldo insuficiente", "alerta"); await falar(`Seu saldo não cobre ${brl(op.valor)}. Cancelei a operação.`); return fimFluxo(); }
+      if (!(op.valor > 0)) { await falar("O valor precisa ser maior que zero. Cancelei."); return fimFluxo(); }
+      if (op.valor > d.saldo) { status("Saldo insuficiente", "alerta"); await falar(`Seu saldo não cobre ${valorFalado(op.valor)}. Cancelei a operação.`); return fimFluxo(); }
 
       // 2) rosto por 3 segundos (ao mesmo tempo em que a ficha aparece); sem rosto, senha falada
-      const falaDados = `${op.tipo === "conta" ? "Pagamento de " + op.nome : "Pix para " + op.nome.split(" (")[0]}, valor de ${valorFalado(op.valor)}`;
+      const falaDados = op.tipo === "conta" ? `Pagamento de ${op.nome}, valor de ${valorFalado(op.valor)}`
+        : `Pix para ${op.nome.split(" (")[0]}${op.dadoFalado ? ", " + op.dadoFalado : (op.banco ? ", no " + op.banco : "")}, valor de ${valorFalado(op.valor)}`;
       // logado: conta a pagar segue sem nova validação; Pix sempre confirma o rosto
       const valid = (op.tipo === "conta" && d.logado) ? { metodo: "sessao", rosto: { motivo: "sessao" } } : await validar();
       if (!valid) return fimFluxo();
       const { metodo, rosto } = valid;
 
       // 3) confirmação com "ok" ou "seguir"
-      const aviso = op.novo ? " Atenção: é um destinatário novo." : "";
+      const aviso = op.novo ? " Lembre: é um destinatário novo, confira os dados." : "";
       await falar(`${metodo === "sessao" ? "" : metodo === "senha" ? "Senha confirmada. " : "Rosto confirmado. "}${falaDados}.${aviso} Diga ok ou seguir para confirmar.`);
       let conf = null;
       for (let tent = 1; tent <= 2 && conf === null; tent++) {
