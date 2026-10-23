@@ -150,9 +150,9 @@ button:disabled { opacity: 0.5; }
 
 /* tema escuro (tela de entrada, antes do login) */
 .sa-bio.escuro { background: linear-gradient(160deg, rgba(190,200,250,0.42) 0%, rgba(128,145,222,0.32) 52%, rgba(96,112,205,0.28) 100%);
-  border: 1px solid rgba(255,255,255,0.26); border-top-color: rgba(255,255,255,0.60); border-left-color: rgba(255,255,255,0.48);
+  border: 1px solid rgba(176,184,202,0.42); border-top-color: rgba(222,227,238,0.72); border-left-color: rgba(200,207,222,0.62); border-bottom-color: rgba(140,150,176,0.40);
   color: #F7F8FF; -webkit-backdrop-filter: blur(24px) saturate(150%); backdrop-filter: blur(24px) saturate(150%);
-  box-shadow: inset 0 1px 1px rgba(255,255,255,0.50), inset 0 0 26px rgba(255,255,255,0.10), 0 16px 36px rgba(0,0,30,0.45); }
+  box-shadow: inset 1px 1px 0 rgba(255,255,255,0.30), inset 0 2px 6px rgba(214,220,232,0.22), inset -1px -1px 0 rgba(110,120,150,0.30), inset 0 0 26px rgba(200,208,224,0.10), 0 16px 36px rgba(0,0,30,0.45); }
 .sa-bio.escuro .sub, .sa-bio.escuro .lgpd { color: #E3E8FF !important; }
 .sa-bio.escuro .mic { box-shadow: 0 0 0 6px rgba(236,112,0,0.12), 0 10px 26px rgba(236,112,0,0.45), inset 0 1px 0 rgba(255,255,255,0.35); }
 .sa-bio.escuro .titulo, .sa-bio.escuro .chamada b { color: white; }
