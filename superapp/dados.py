@@ -21,11 +21,11 @@ PERSONAS = {
         "descricao": "Cliente padrão do protótipo.",
         "agencia": "1234",
         "conta": "56789-0",
-        "saldo": 15_000.00,
+        "saldo": 14_873.46,
         "limite_cartao": 6_000.00,
-        "fatura_atual": 800.00,
+        "fatura_atual": 812.37,
         "fatura_vencimento": date(2026, 10, 8),
-        "patrimonio_inv": 802_400.00,
+        "patrimonio_inv": 802_668.90,
         "pix_padrao_max": 400.00,
         "prefere_humano": False,
         "atalhos": ["Pix", "Pagar conta", "Cartão", "Assistente"],
@@ -134,10 +134,10 @@ CONTAS_A_PAGAR = {
 
 INVESTIMENTOS = {
     "padrao": [
-        {"produto": "CDB Superapp 110% CDI", "tipo": "Renda fixa", "valor": 325_000.00, "rent_12m": 0.1125, "liquidez": "Diária"},
-        {"produto": "Tesouro Selic 2029", "tipo": "Tesouro Direto", "valor": 210_000.00, "rent_12m": 0.108, "liquidez": "D+1"},
-        {"produto": "Tesouro IPCA+ 2035", "tipo": "Tesouro Direto", "valor": 165_000.00, "rent_12m": 0.098, "liquidez": "D+1"},
-        {"produto": "ETF IVVB11", "tipo": "Renda variável", "valor": 102_400.00, "rent_12m": 0.184, "liquidez": "D+2"},
+        {"produto": "CDB Superapp 110% CDI", "tipo": "Renda fixa", "valor": 324_818.27, "rent_12m": 0.1125, "liquidez": "Diária"},
+        {"produto": "Tesouro Selic 2029", "tipo": "Tesouro Direto", "valor": 209_643.15, "rent_12m": 0.108, "liquidez": "D+1"},
+        {"produto": "Tesouro IPCA+ 2035", "tipo": "Tesouro Direto", "valor": 166_274.90, "rent_12m": 0.098, "liquidez": "D+1"},
+        {"produto": "ETF IVVB11", "tipo": "Renda variável", "valor": 101_932.58, "rent_12m": 0.184, "liquidez": "D+2"},
     ],
     "marisa": [
         {"produto": "CDB Superapp 110% CDI", "tipo": "Renda fixa", "valor": 22_500.00, "rent_12m": 0.1125, "liquidez": "Diária"},

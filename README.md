@@ -27,7 +27,7 @@ abre direto na aba. Ali também fica a **Lia por voz**, com segurança por níve
 
 O **Token** também abre sem senha: só gera o código, não movimenta a conta.
 
-Dentro do app, a Início abre sem nova verificação; os menus com dados ou operações
+Dentro do app, depois do login com rosto, **os menus ficam livres**; o rosto só volta para **efetivar Pix e investimentos**. (Antes: os menus com dados ou operações
 (Pix, Pagar, Cartão, Extrato, Investir, Gastos, Crédito, Seguros) abrem com **verificação de rosto por 3 s**;
 sem rosto (ou sem câmera), pedem a **senha de acesso** (protótipo: `1234`).
 
@@ -108,3 +108,8 @@ schema.sql                  referência das tabelas
 .streamlit/config.toml      tema
 .streamlit/secrets.example.toml  modelo dos secrets
 ```
+
+## Voz da Lia
+A Lia fala com a voz neural feminina **Francisca** (pt-BR), gerada no servidor pelo pacote `edge-tts`
+(serviço de leitura do Microsoft Edge, gratuito e não oficial). Se o serviço não responder, a Lia usa a voz
+feminina do próprio aparelho (no iPhone, baixe "Luciana Melhorada" em Ajustes › Acessibilidade › Conteúdo Falado › Vozes).

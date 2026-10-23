@@ -118,7 +118,9 @@ def menu_app(telas_menu: list[str]) -> None:
 
 
 # menus que abrem com verificação de rosto (biometria no aparelho) ou senha
-PROTEGIDAS = {"Pix", "Pagar", "Cartão", "Extrato", "Investir", "Gastos", "Crédito", "Seguros"}
+# Depois do login com rosto, os menus ficam livres (sem atrito). O rosto volta só para efetivar Pix e
+# investimentos (confirmar_rosto). Para voltar a pedir rosto ao abrir menus, liste as telas aqui.
+PROTEGIDAS: set[str] = set()
 
 
 def ir_para(tela: str) -> None:
@@ -219,6 +221,26 @@ def confirmar_senha(chave: str, texto: str) -> bool:
     return False
 
 
+def confirmar_rosto(chave: str, resumo: str, rotulo_botao: str) -> str | None:
+    """Pix e investimentos: botão → rosto por 3 s (sem rosto, senha falada/digitada). Devolve o método ou None."""
+    ss = st.session_state
+    k, n = f"_tx_{chave}", f"_tx_{chave}_n"
+    if not ss.get(k):
+        if st.button(rotulo_botao, icon=":material/face:", type="primary", width="stretch", key=f"txbt_{chave}"):
+            ss[k] = True
+            st.rerun()
+        return None
+    r = BIO.portao(chave, rotulo=resumo, prefixo=f"tx{ss.get(n, 0)}", verbo="confirmar")
+    if st.button("Cancelar", key=f"txcancel_{chave}", width="stretch"):
+        ss[k] = False
+        st.rerun()
+    if r:
+        ss[k] = False
+        ss[n] = ss.get(n, 0) + 1
+        return r["metodo"]
+    return None
+
+
 # ----------------------------------------------------------------------------- entrada
 def tela_entrada() -> None:
     st.markdown(
@@ -268,13 +290,14 @@ def cabecalho() -> None:
     p = persona()
     c1, c2, c3 = st.columns([4, 1, 1])
     with c1:
-        st.markdown(f'<div class="sa-ola">Olá, <b>{ss.nome}</b> 👋</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="sa-ola">Olá, <b>{ss.nome}</b></div>', unsafe_allow_html=True)
     with c2:
-        if st.button("🙈" if ss.mostrar_saldo else "👁️", key="olho", help="Ocultar/mostrar valores", width="stretch"):
+        if st.button("Ocultar valores" if ss.mostrar_saldo else "Mostrar valores", key="olho", width="stretch",
+                     icon=":material/visibility_off:" if ss.mostrar_saldo else ":material/visibility:"):
             ss.mostrar_saldo = not ss.mostrar_saldo
             st.rerun()
     with c3:
-        with st.popover("👤", width="stretch"):
+        with st.popover("Perfil", icon=":material/person:", width="stretch"):
             st.markdown(f"**{ss.nome}**  \nCliente há {p['tempo_cliente']}")
             st.caption(f"Agência {p['agencia']} · Conta {p['conta']}  \nChave Pix: {p['chave_pix']}")
             st.markdown("**Atendimento**")
@@ -360,7 +383,7 @@ def tela_pre_login() -> None:
     """Tela antes do login: atalhos rápidos (abrem com rosto/senha) e a Lia por voz, sem entrar no app."""
     ss = st.session_state
     p = persona()
-    st.markdown('<style>.stApp{background:linear-gradient(180deg,#02040F 0%,#061447 55%,#020A2E 100%) !important;}'
+    st.markdown('<style>.stApp{background:linear-gradient(180deg,#000012 0%,#00003A 52%,#00001E 100%) !important;}'
                 '.sa-aviso{color:#8E98B3 !important;}</style><div class="sa-pre-luz"></div>', unsafe_allow_html=True)
     # Token sem senha e compacto: toca e o código aparece ao lado (não movimenta nada)
     with st.container(key="pre_topo", horizontal=True, vertical_alignment="center"):
@@ -431,7 +454,8 @@ def executar_voz(op: dict) -> None:
     """Executa a operação que a Lia confirmou por voz (rosto ou senha + ok/seguir)."""
     ss = st.session_state
     valor_op = float(op.get("valor") or 0)
-    metodo = "rosto confirmado" if op.get("metodo") == "rosto" else "rosto não identificado → senha falada"
+    metodo = {"rosto": "rosto confirmado", "senha": "rosto não identificado → senha falada",
+              "sessao": "sessão já validada no login"}.get(op.get("metodo"), str(op.get("metodo")))
     if valor_op <= 0 or valor_op > ss.saldo:
         st.toast("Saldo insuficiente — operação não realizada.")
         return
@@ -603,7 +627,8 @@ def lia_inicio() -> None:
 
 def _lia_inicio_conteudo() -> None:
     ss = st.session_state
-    r = _lia_voz("lia_voz")
+    r = _lia_voz("lia_voz", logado=True, chamada="Toque e fale com a Lia",
+                 dica="“qual meu saldo?”, “pagar a conta de luz”, “abrir o extrato”. Para Pix, ela confirma seu rosto.")
     if r.consulta:
         evento("Início", "lia_consulta", {"comando": r.consulta.get("comando", "")})
     if r.abrir:
@@ -674,20 +699,19 @@ def tela_pix() -> None:
                          if cc else " Você pode cadastrar um contato de confiança em Segurança para ser avisado nessas horas.")
                 st.markdown(f'<div class="sa-card alerta"><div class="titulo">🛡️ Operação fora do seu padrão</div>'
                             f'<div class="sub">Você costuma enviar até {D.brl(p["pix_padrao_max"])}. Por segurança, este Pix '
-                            f'pedirá confirmação reforçada.{aviso}</div></div>', unsafe_allow_html=True)
+                            f'avisa seu contato de confiança.{aviso}</div></div>', unsafe_allow_html=True)
             if valor > ss.saldo:
                 st.error("Saldo insuficiente para este Pix.")
             elif valor > 0:
-                if fora_padrao:
-                    pode = confirmar_senha("pix", f"Pix de {D.brl(valor)} para {dest if chave == '' else chave}.")
-                else:
-                    pode = st.button(f"Confirmar Pix de {D.brl(valor)}", type="primary", width="stretch")
-                if pode:
+                quem_pix = (dest if chave == "" else chave).split(" (")[0]
+                metodo = confirmar_rosto("pix", f"Pix de {D.brl(valor)} para {quem_pix}",
+                                         f"Confirmar Pix de {D.brl(valor)} com rosto")
+                if metodo:
                     nome = dest if chave == "" else chave
                     lancar(f"Pix enviado — {nome.split(' (')[0]}", -valor, "Transferência")
                     ss.pix_pendente = None
                     ss.pix_confirmados += 1
-                    evento("Pix", "enviado", {"valor": valor, "fora_padrao": fora_padrao})
+                    evento("Pix", "enviado", {"valor": valor, "fora_padrao": fora_padrao, "metodo": metodo})
                     st.success(f"Pix de {D.brl(valor)} enviado para {nome.split(' (')[0]}. Comprovante salvo no extrato.")
                     st.balloons()
 
@@ -739,7 +763,7 @@ def _pagar_codigo_pix(cod: str, origem: str) -> None:
     estilo.card("🛡️ Verificação antifraude", "Recebedor sem denúncias e valor coerente com o seu histórico.", "ok")
     if v_cola > ss.saldo:
         st.error("Saldo insuficiente.")
-    elif st.button(f"Pagar {D.brl(v_cola)}", type="primary", width="stretch", key=f"pagar_{origem}"):
+    elif confirmar_rosto(f"pix_{origem}", f"Pix de {D.brl(v_cola)} para {quem}", f"Pagar {D.brl(v_cola)} com rosto"):
         lancar(f"Pix {'QR Code' if origem == 'qr' else 'copia e cola'} — {quem}", -v_cola, "Transferência")
         evento("Pix", origem, {"valor": v_cola})
         st.success(f"Pix de {D.brl(v_cola)} pago para {quem}.")
@@ -1176,7 +1200,7 @@ def tela_investir() -> None:
         prod = st.selectbox("Produto", nomes, index=idx)
         op = st.radio("Operação", ["Aplicar", "Resgatar"], horizontal=True, index=0 if pend.get("op", "Aplicar") == "Aplicar" else 1)
         v = st.number_input("Valor (R$)", min_value=0.0, step=50.0, value=float(pend.get("valor", 0.0)), format="%.2f", key="inv_valor")
-        if v > 0 and st.button(f"{op} {D.brl(v)}", type="primary", width="stretch"):
+        if v > 0 and confirmar_rosto(f"inv_{op}", f"{op.lower()} {D.brl(v)} em {prod}", f"{op} {D.brl(v)} com rosto"):
             item = next(i for i in ss.investimentos if i["produto"] == prod)
             if op == "Aplicar":
                 if v > ss.saldo:

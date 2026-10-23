@@ -44,23 +44,20 @@ if not st.session_state.get("logado"):
 
 ss = st.session_state
 
-# ----------------------------------------------------------------------------- cabeçalho
-telas.cabecalho()
-
-# ----------------------------------------------------------------------------- cards (só na Início)
-if ss.tela == "Início":
-    telas.cards_resumo()
-else:
-    telas.faixa_saldo()
-
-# ----------------------------------------------------------------------------- menu (zona do polegar)
-# O menu é montado pelos produtos que a pessoa tem; conta corrente é fixa.
-# Cada bloco chama ir_para no clique; a navegação por código (cards, atalhos, Lia) usa o mesmo ir_para.
+# ----------------------------------------------------------------------------- topo (marinho + vidro)
+# Saudação, cards e menu ficam num bloco marinho com luzes; o conteúdo da tela vem abaixo, em fundo claro.
 telas_menu = telas.telas_disponiveis()
-FORA_DO_MENU = {"Avalie"}  # telas abertas por botão, sem pílula no menu
+FORA_DO_MENU = {"Avalie"}  # telas abertas por botão, sem bloco no menu
 if ss.tela not in telas_menu and ss.tela not in FORA_DO_MENU:
     ss.tela = "Início"
-telas.menu_app(telas_menu)  # blocos com ícone, no desenho da tela de entrada
+with st.container(key="hero"):
+    telas.cabecalho()
+    if ss.tela == "Início":
+        telas.cards_resumo()
+    else:
+        telas.faixa_saldo()
+    # Cada bloco chama ir_para no clique; a navegação por código (cards, atalhos, Lia) usa o mesmo ir_para.
+    telas.menu_app(telas_menu)
 
 # ----------------------------------------------------------------------------- conteúdo
 TELAS = {

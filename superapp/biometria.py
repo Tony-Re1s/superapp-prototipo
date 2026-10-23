@@ -15,7 +15,76 @@ no app real seria comparada com a biometria cadastrada.
 """
 from __future__ import annotations
 
+import asyncio
+import base64
+import io
+import math
+import os
+import threading
+import wave
+
 import streamlit as st
+
+VOZ_NEURAL = "pt-BR-FranciscaNeural"  # voz feminina neural, suave (serviço de leitura do Microsoft Edge)
+_TTS_CACHE: dict[str, str] = {}
+
+
+def _wav_teste(texto: str) -> str:
+    """Áudio curto de teste (SA_TTS_FAKE=1), para validar o fluxo sem acesso ao serviço de voz."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+        n = int(16000 * 0.25)
+        w.writeframes(b"".join(int(3000 * math.sin(2 * math.pi * 440 * k / 16000)).to_bytes(2, "little", signed=True)
+                               for k in range(n)))
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def voz_neural(texto: str) -> str | None:
+    """MP3 (base64) da frase na voz neural; None se o serviço não responder (o app usa a voz do aparelho)."""
+    if texto in _TTS_CACHE:
+        return _TTS_CACHE[texto]
+    if os.environ.get("SA_TTS_FAKE"):
+        return _wav_teste(texto)
+    try:
+        import edge_tts
+
+        async def _gerar() -> bytes:
+            com = edge_tts.Communicate(texto, VOZ_NEURAL, rate="-4%", pitch="+0Hz")
+            out = bytearray()
+            async for ch in com.stream():
+                if ch["type"] == "audio":
+                    out.extend(ch["data"])
+            return bytes(out)
+
+        resultado: dict = {}
+
+        def _rodar():
+            try:
+                resultado["audio"] = asyncio.run(asyncio.wait_for(_gerar(), 8))
+            except Exception as e:  # noqa: BLE001
+                resultado["erro"] = e
+
+        t = threading.Thread(target=_rodar, daemon=True)
+        t.start(); t.join(9)
+        audio = resultado.get("audio")
+        if not audio:
+            return None
+        b64 = base64.b64encode(audio).decode()
+        if len(_TTS_CACHE) < 400:
+            _TTS_CACHE[texto] = b64
+        return b64
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _ponte_tts(res, chave: str) -> None:
+    """O navegador pediu uma frase: gera a voz e devolve no próximo render do componente."""
+    pedido = getattr(res, "tts", None)
+    if pedido and pedido.get("texto"):
+        b64 = voz_neural(str(pedido["texto"])[:600])
+        st.session_state[f"_tts_{chave}"] = {"id": pedido.get("id"), "b64": b64} if b64 else {"id": pedido.get("id"), "erro": True}
+        st.rerun()
 
 SENHA_ACESSO = "1234"  # senha fictícia do protótipo (mostrada na tela)
 SEGUNDOS_ROSTO = 3
@@ -184,15 +253,15 @@ if ("speechSynthesis" in window) {
   try { speechSynthesis.addEventListener("voiceschanged", () => { VOZ_LIA = escolherVoz(); }); } catch (e) {}
 }
 function prepararVoz(u) {
-  u.lang = "pt-BR"; u.rate = 1.0; u.pitch = 1.08;      // ritmo natural, timbre levemente mais agudo
+  u.lang = "pt-BR"; u.rate = 0.97; u.pitch = 1.0;      // ritmo calmo e tom natural (pitch alto soa robótico)
   const v = VOZ_LIA || escolherVoz();
   if (v) { u.voice = v; u.lang = v.lang; }
   // sem voz feminina instalada: sobe um pouco o tom da voz padrão para não soar masculina
-  if (!v || VOZES_MASCULINAS.test(v.name)) u.pitch = 1.35;
+  if (!v || VOZES_MASCULINAS.test(v.name)) u.pitch = 1.12;
 }
 
 // voz simples (Lia): fala em pt-BR e ouve uma resposta; devolve null se o navegador não deixar
-function falarLia(texto) {
+function falarNavegador(texto) {
   return new Promise((res) => {
     if (!("speechSynthesis" in window)) return res(false);
     let feito = false; const fim = (ok) => { if (!feito) { feito = true; res(ok); } };
@@ -203,6 +272,41 @@ function falarLia(texto) {
     } catch (e) { fim(false); }
     setTimeout(() => fim(true), 900 + texto.length * 70);
   });
+}
+// voz neural feminina (gerada no servidor) tocada pelo Web Audio; desbloqueada no primeiro toque
+function audioCtx() { if (!G.ac) { const AC = window.AudioContext || window.webkitAudioContext; if (AC) G.ac = new AC(); } return G.ac; }
+function desbloquearAudio() {
+  const ac = audioCtx(); if (!ac) return;
+  try { if (ac.state === "suspended") ac.resume();
+        const b = ac.createBuffer(1, 1, 22050), src = ac.createBufferSource(); src.buffer = b; src.connect(ac.destination); src.start(0); } catch (e) {}
+}
+if (!G.audioLigado) { G.audioLigado = true; ["pointerdown", "touchend", "click", "keydown"].forEach((ev) => document.addEventListener(ev, desbloquearAudio, true)); }
+function receberTts(raiz, data) {
+  const t = data && data.tts;
+  if (t && raiz.__ttsPend && raiz.__ttsPend[t.id]) { const f = raiz.__ttsPend[t.id]; delete raiz.__ttsPend[t.id]; f(t); }
+}
+async function tocarB64(b64) {
+  const ac = audioCtx(); if (!ac) throw new Error("sem audio");
+  if (ac.state === "suspended") await ac.resume();
+  const bin = atob(b64), buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  const audio = await ac.decodeAudioData(buf.buffer);
+  return new Promise((res) => {
+    const src = ac.createBufferSource(); src.buffer = audio;
+    const ganho = ac.createGain(); ganho.gain.value = 0.95; src.connect(ganho); ganho.connect(ac.destination);
+    let feito = false; const fim = () => { if (!feito) { feito = true; res(); } };
+    src.onended = fim; src.start(0); setTimeout(fim, audio.duration * 1000 + 600);
+  });
+}
+async function falarLia(texto, raiz) {
+  if (raiz && raiz.__set && !G.ttsOff) {
+    raiz.__ttsPend = raiz.__ttsPend || {};
+    const id = "t" + Date.now() + Math.floor(Math.random() * 1000);
+    const r = await new Promise((res) => { raiz.__ttsPend[id] = res; setTimeout(() => res(null), 6000); raiz.__set("tts", { id, texto }); });
+    if (r && r.b64) { try { await tocarB64(r.b64); return true; } catch (e) {} }
+    if (r && r.erro) G.ttsOff = true;        // servidor sem voz neural: usa a do aparelho daqui em diante
+  }
+  return falarNavegador(texto);
 }
 function ouvirLia(ms = 7000, aoParcial) {
   return new Promise((res) => {
@@ -225,7 +329,7 @@ HTML_PORTAO = """
 <div class="sa-bio">
   <div class="cam"><video playsinline muted></video><div class="anel"></div><div class="icone escondido"></div></div>
   <div class="titulo">Olhe para a câmera</div>
-  <div class="sub">Confirmando que é você para abrir <b class="tela"></b>…</div>
+  <div class="sub">Confirmando que é você para <span class="verbo">abrir</span> <b class="tela"></b>…</div>
   <div class="pedido escondido">
     <div class="senha"><input type="password" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off">
       <button class="entrar">Entrar</button></div>
@@ -243,11 +347,13 @@ JS_PORTAO = JS_COMUM + r"""
 export default function (component) {
   const { parentElement: raiz, data, setTriggerValue } = component;
   const $ = (s) => raiz.querySelector(s);
+  raiz.__set = setTriggerValue; receberTts(raiz, data);
   if (raiz.__iniciado) return;
   raiz.__iniciado = true;
   if (data.tema === "escuro") $(".sa-bio").classList.add("escuro");
   carregarDetector();
   $(".tela").textContent = data.rotulo || data.tela;
+  if (data.verbo) $(".verbo").textContent = data.verbo;
   const cam = $(".cam"), icone = $(".icone"), titulo = $(".titulo"), sub = $(".sub");
   const pedido = $(".pedido"), campo = $("input"), erro = $(".erro");
 
@@ -269,21 +375,20 @@ export default function (component) {
       sub.innerHTML += ` <span style="color:#7A8391">(protótipo: ${data.senha})</span>`;
       pedido.classList.remove("escondido"); campo.value = ""; erro.textContent = "";
       // sem rosto (dirigindo, celular na mochila…): a Lia fala e ouve a senha; o campo continua valendo
-      await falarLia("Não consegui identificar seu rosto. Diga a sua senha de acesso.");
+      await falarLia("Não consegui identificar seu rosto. Diga a sua senha de acesso.", raiz);
       ouvirSenha();
     }
   }
   let tentativas = 0;
   function conferir(valor, origem) {
     if (digitos(valor) === data.senha) {
-      if (origem === "voz") falarLia("Senha confirmada.");
       setTriggerValue("liberado", { tela: data.tela, metodo: origem === "voz" ? "senha_voz" : "senha" });
       return true;
     }
     tentativas++;
     erro.textContent = "Senha incorreta. Tente de novo.";
     campo.value = "";
-    if (origem === "voz" && tentativas < 2) falarLia("Senha incorreta. Diga de novo, por favor.").then(ouvirSenha);
+    if (origem === "voz" && tentativas < 2) falarLia("Senha incorreta. Diga de novo, por favor.", raiz).then(ouvirSenha);
     return false;
   }
   async function ouvirSenha() {
@@ -391,7 +496,7 @@ function destinoDe(t, contatos, contas) {
 
 export default function (component) {
   const { parentElement: raiz, data, setTriggerValue } = component;
-  raiz.__data = data; raiz.__set = setTriggerValue;
+  raiz.__data = data; raiz.__set = setTriggerValue; receberTts(raiz, data);
   if (raiz.__iniciado) return;
   raiz.__iniciado = true;
   const $ = (s) => raiz.querySelector(s);
@@ -408,16 +513,7 @@ export default function (component) {
 
   function falar(texto) {
     ui.fala.textContent = texto;
-    return new Promise((res) => {
-      if (!("speechSynthesis" in window)) return res();
-      let feito = false; const fim = () => { if (!feito) { feito = true; res(); } };
-      try {
-        const u = new SpeechSynthesisUtterance(texto); prepararVoz(u);
-        u.onend = fim; u.onerror = fim;
-        speechSynthesis.cancel(); speechSynthesis.speak(u);
-      } catch (e) { fim(); }
-      setTimeout(fim, 900 + texto.length * 70);
-    });
+    return falarLia(texto, raiz);
   }
   function ouvir(ms = 7000) {
     return new Promise((res) => {
@@ -539,7 +635,7 @@ export default function (component) {
       const info = consulta(cmd, d);
       if (info) {
         status("");
-        if (info.protegido) {
+        if (info.protegido && !d.logado) {
           ui.op.classList.remove("escondido");
           $(".f-tipo").textContent = "Consulta"; $(".f-para").textContent = info.assunto;
           $(".f-chave").textContent = "—"; $(".f-valor").textContent = "•••••";
@@ -557,9 +653,9 @@ export default function (component) {
         ui.op.classList.remove("escondido");
         $(".f-tipo").textContent = "Abrir no app"; $(".f-para").textContent = abrir.nome;
         $(".f-chave").textContent = "—"; $(".f-valor").textContent = "—";
-        const v = await validar();
+        const v = d.logado ? { metodo: "sessao" } : await validar();
         if (!v) return fimFluxo();
-        await falar(`${v.metodo === "senha" ? "Senha confirmada" : "Rosto confirmado"}. Abrindo ${abrir.nome}.`);
+        await falar(`${v.metodo === "sessao" ? "Certo" : v.metodo === "senha" ? "Senha confirmada" : "Rosto confirmado"}. Abrindo ${abrir.nome}.`);
         fimFluxo();
         raiz.__set("abrir", { tela: abrir.tela, metodo: v.metodo });
         return;
@@ -592,13 +688,14 @@ export default function (component) {
 
       // 2) rosto por 3 segundos (ao mesmo tempo em que a ficha aparece); sem rosto, senha falada
       const falaDados = `${op.tipo === "conta" ? "Pagamento de " + op.nome : "Pix para " + op.nome.split(" (")[0]}, valor de ${valorFalado(op.valor)}`;
-      const valid = await validar();
+      // logado: conta a pagar segue sem nova validação; Pix sempre confirma o rosto
+      const valid = (op.tipo === "conta" && d.logado) ? { metodo: "sessao", rosto: { motivo: "sessao" } } : await validar();
       if (!valid) return fimFluxo();
       const { metodo, rosto } = valid;
 
       // 3) confirmação com "ok" ou "seguir"
       const aviso = op.novo ? " Atenção: é um destinatário novo." : "";
-      await falar(`${metodo === "senha" ? "Senha confirmada. " : "Rosto confirmado. "}${falaDados}.${aviso} Diga ok ou seguir para confirmar.`);
+      await falar(`${metodo === "sessao" ? "" : metodo === "senha" ? "Senha confirmada. " : "Rosto confirmado. "}${falaDados}.${aviso} Diga ok ou seguir para confirmar.`);
       let conf = null;
       for (let tent = 1; tent <= 2 && conf === null; tent++) {
         const rr = await resposta({ placeholder: "Diga ou digite: ok / seguir / cancelar", botoes: true });
@@ -627,26 +724,34 @@ _portao = st.components.v2.component("sa_portao_biometria", html=HTML_PORTAO, cs
 _voz = st.components.v2.component("sa_lia_voz", html=HTML_VOZ, css=CSS, js=JS_VOZ)
 
 
-def portao(tela: str, rotulo: str = "", tema: str = "claro", prefixo: str = "bio"):
-    """Mostra a verificação de rosto da tela. Devolve {'tela', 'metodo'} quando liberar."""
-    res = _portao(key=f"{prefixo}_{tela}", data={"tela": tela, "rotulo": rotulo or tela, "tema": tema,
-                                                 "senha": SENHA_ACESSO, "segundos": SEGUNDOS_ROSTO},
-                  on_liberado_change=lambda: None)
+def portao(tela: str, rotulo: str = "", tema: str = "claro", prefixo: str = "bio", verbo: str = "abrir"):
+    """Mostra a verificação de rosto. Devolve {'tela', 'metodo'} quando liberar."""
+    chave = f"{prefixo}_{tela}"
+    res = _portao(key=chave, data={"tela": tela, "rotulo": rotulo or tela, "tema": tema, "verbo": verbo,
+                                   "senha": SENHA_ACESSO, "segundos": SEGUNDOS_ROSTO,
+                                   "tts": st.session_state.get(f"_tts_{chave}")},
+                  on_liberado_change=lambda: None, on_tts_change=lambda: None)
+    if not res.liberado:          # a liberação vale mais que um pedido de fala no mesmo instante
+        _ponte_tts(res, chave)
     return res.liberado
 
 
 def lia_voz(nome: str, contatos: list[dict], contas: list[dict], saldo: float, key: str = "lia_voz",
             tema: str = "claro", chamada: str = "", dica: str = "", fatura: dict | None = None,
-            limite_disponivel: float = 0.0):
+            limite_disponivel: float = 0.0, logado: bool = False):
     """Botão LIA por voz. Consultas sem senha; transações e abrir telas com rosto (ou senha).
     Devolve o resultado do componente: .executar (operação confirmada), .abrir (tela liberada), .consulta."""
     dados = {
-        "tema": tema, "chamada": chamada, "dica": dica,
+        "tema": tema, "chamada": chamada, "dica": dica, "logado": logado,
         "nome": nome, "senha": SENHA_ACESSO, "segundos": SEGUNDOS_ROSTO, "saldo": round(float(saldo), 2),
         "contatos": [{"nome": c["nome"], "chave": c["chave"], "banco": c.get("banco", "")} for c in contatos],
         "contas": [{"descricao": c["descricao"], "valor": c["valor"], "vencimento": c["vencimento"].strftime("%d/%m"),
                     "status": c.get("status", "aberta")} for c in contas],
         "fatura": fatura, "limite_disponivel": round(float(limite_disponivel), 2),
     }
-    return _voz(key=key, data=dados, on_executar_change=lambda: None, on_abrir_change=lambda: None,
-                on_consulta_change=lambda: None)
+    dados["tts"] = st.session_state.get(f"_tts_{key}")
+    res = _voz(key=key, data=dados, on_executar_change=lambda: None, on_abrir_change=lambda: None,
+               on_consulta_change=lambda: None, on_tts_change=lambda: None)
+    if not (res.executar or res.abrir or res.consulta):
+        _ponte_tts(res, key)
+    return res
