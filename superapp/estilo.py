@@ -9,7 +9,7 @@ CINZA = "#F4F5F7"
 TEXTO = "#1F2430"
 VERDE = "#1B8A4A"
 VERMELHO = "#C62828"
-VERSAO = "v2026.10.22-vidro-prata"  # mostrada no rodapé para conferir qual versão está publicada
+VERSAO = "v2026.10.22-lia-polegar"  # mostrada no rodapé para conferir qual versão está publicada
 
 CSS = f"""
 <style>
@@ -177,7 +177,7 @@ CSS = f"""
     .sa-pre-ajuda {{ width: 30px; height: 30px; border: 2px solid rgba(255,255,255,0.9); border-radius: 50%; display: flex; color: white;
         align-items: center; justify-content: center; font-weight: 700; box-shadow: 0 0 14px rgba(255,255,255,0.18); }}
     .sa-pre-conta {{ display: inline-flex; gap: 14px; align-items: center; border-radius: 999px; padding: 10px 28px 10px 10px;
-        color: white; margin: 8px 0 18px 0; position: relative; z-index: 1; background: linear-gradient(145deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05)); -webkit-backdrop-filter: blur(14px) saturate(150%); backdrop-filter: blur(14px) saturate(150%); border: 1px solid rgba(255,255,255,0.20); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), inset 0 -1px 0 rgba(0,0,0,0.25), 0 12px 28px rgba(0,0,0,0.40); }}
+        color: white; margin: 6px 0 12px 0; position: relative; z-index: 1; background: linear-gradient(145deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05)); -webkit-backdrop-filter: blur(14px) saturate(150%); backdrop-filter: blur(14px) saturate(150%); border: 1px solid rgba(255,255,255,0.20); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), inset 0 -1px 0 rgba(0,0,0,0.25), 0 12px 28px rgba(0,0,0,0.40); }}
     .sa-pre-conta .av {{ width: 52px; height: 52px; border-radius: 50%; background: linear-gradient(145deg, #FFFFFF, #D9DEE8); color: #3A3D42;
         display: flex; align-items: center; justify-content: center; font-size: 1.15rem; box-shadow: 0 4px 12px rgba(0,0,0,0.35); }}
     .sa-pre-conta b {{ font-size: 1.15rem; }}
@@ -186,7 +186,7 @@ CSS = f"""
     .sa-pre-slogan {{ color: white; font-weight: 800; font-size: 1.7rem; line-height: 1.15; margin: 4vh 0 14px 4px;
         text-shadow: 0 2px 18px rgba(0,0,0,0.45); position: relative; z-index: 1; }}
     .sa-pre-titulo {{ color: white; font-weight: 800; font-size: 1.3rem; margin: 6px 0 8px 2px; }}
-    .st-key-pre_atalhos {{ margin-top: 22px; }}
+    .st-key-pre_atalhos {{ margin-top: 10px; }}
     .st-key-pre_atalhos > .stElementContainer {{ flex: 1 1 0 !important; min-width: 0 !important; }}
     .st-key-pre_atalhos button, .st-key-pre_atalhos button:hover, .st-key-pre_atalhos button:focus {{
         background: transparent !important; border: none !important; color: white !important; padding: 0 !important;
@@ -207,7 +207,7 @@ CSS = f"""
     .st-key-pre_acessar button, .st-key-pre_voltar button {{
         color: white !important; border-radius: 18px !important; min-height: 56px; background: linear-gradient(145deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05)); -webkit-backdrop-filter: blur(14px) saturate(150%); backdrop-filter: blur(14px) saturate(150%); border: 1px solid rgba(255,255,255,0.20); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), inset 0 -1px 0 rgba(0,0,0,0.25), 0 12px 28px rgba(0,0,0,0.40); }}
     .st-key-pre_acessar button p, .st-key-pre_voltar button p, .st-key-pre_acessar button span {{ color: white !important; font-size: 1.1rem; font-weight: 700; }}
-    .st-key-pre_acessar {{ margin-top: 10px; }}
+    .st-key-pre_acessar {{ margin-top: 9vh; }}
 
     /* menu do app em blocos com ícone, no desenho da tela de entrada */
     div.st-key-menu_app[data-testid="stHorizontalBlock"] {{ flex-wrap: wrap !important; gap: 6px 0 !important; }}

@@ -167,6 +167,20 @@ button:disabled { opacity: 0.5; }
 .sa-bio.escuro .status.alerta { color: #FFB066; }
 .sa-bio.escuro button.sec { background: transparent; color: white; border-color: rgba(255,255,255,0.4); }
 .sa-bio.escuro input { background: rgba(255,255,255,0.95); }
+
+/* botão LIA em barra (tela de entrada): mesmo tamanho do Acessar, laranja, na zona do polegar */
+.sa-bio.barra, .sa-bio.escuro.barra { background: transparent !important; border: none !important; box-shadow: none !important;
+  -webkit-backdrop-filter: none !important; backdrop-filter: none !important; padding: 0 !important; }
+.barra .topo { flex-direction: column-reverse; align-items: stretch; gap: 8px; }
+.barra .chamada { text-align: center; }
+.barra .chamada b { font-size: 0.95rem; }
+.barra .chamada .sub { font-size: 0.78rem; line-height: 1.35; }
+.barra .mic { width: 100%; height: 58px; border-radius: 18px; font-size: 1.15rem; font-weight: 800; letter-spacing: 0.06em;
+  background: linear-gradient(160deg, #FF9A3D 0%, #EC7000 45%, #C25C00 100%);
+  border: 1px solid rgba(255,214,176,0.55); border-top-color: rgba(255,236,220,0.85); border-bottom-color: rgba(150,70,0,0.6);
+  box-shadow: inset 1px 1px 0 rgba(255,255,255,0.35), inset -1px -1px 0 rgba(120,50,0,0.35), 0 12px 28px rgba(236,112,0,0.45), 0 0 26px rgba(255,140,40,0.25) !important; }
+.barra .mic.ativo { animation: pulsaBarra 1.2s ease-in-out infinite; }
+@keyframes pulsaBarra { 50% { box-shadow: 0 0 0 8px rgba(236,112,0,0.18), 0 12px 28px rgba(236,112,0,0.45); } }
 """
 
 # ---------------------------------------------------------------------------------- JS comum
@@ -504,6 +518,7 @@ export default function (component) {
   const $ = (s) => raiz.querySelector(s);
   const D = () => raiz.__data;
   if (data.tema === "escuro") $(".sa-bio").classList.add("escuro");
+  if (data.layout === "barra") { $(".sa-bio").classList.add("barra"); $(".mic").innerHTML = "🎙️&nbsp; LIA"; }
   if (data.chamada) $(".chamada b").textContent = data.chamada;
   if (data.dica) $(".chamada .sub").textContent = data.dica;
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -624,6 +639,7 @@ export default function (component) {
     rodando = true;
     carregarDetector();
     ui.painel.classList.remove("escondido"); ui.op.classList.add("escondido"); ui.voce.textContent = ""; ui.erro.textContent = "";
+    if (raiz.querySelector(".barra")) setTimeout(() => { try { ui.painel.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch (e) {} }, 60);
     status("");
     const d = D();
     try {
@@ -740,11 +756,11 @@ def portao(tela: str, rotulo: str = "", tema: str = "claro", prefixo: str = "bio
 
 def lia_voz(nome: str, contatos: list[dict], contas: list[dict], saldo: float, key: str = "lia_voz",
             tema: str = "claro", chamada: str = "", dica: str = "", fatura: dict | None = None,
-            limite_disponivel: float = 0.0, logado: bool = False):
+            limite_disponivel: float = 0.0, logado: bool = False, layout: str = "cartao"):
     """Botão LIA por voz. Consultas sem senha; transações e abrir telas com rosto (ou senha).
     Devolve o resultado do componente: .executar (operação confirmada), .abrir (tela liberada), .consulta."""
     dados = {
-        "tema": tema, "chamada": chamada, "dica": dica, "logado": logado,
+        "tema": tema, "chamada": chamada, "dica": dica, "logado": logado, "layout": layout,
         "nome": nome, "senha": SENHA_ACESSO, "segundos": SEGUNDOS_ROSTO, "saldo": round(float(saldo), 2),
         "contatos": [{"nome": c["nome"], "chave": c["chave"], "banco": c.get("banco", "")} for c in contatos],
         "contas": [{"descricao": c["descricao"], "valor": c["valor"], "vencimento": c["vencimento"].strftime("%d/%m"),

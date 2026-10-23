@@ -413,11 +413,19 @@ def tela_pre_login() -> None:
             st.rerun()
         return
 
-    st.markdown('<div class="sa-pre-slogan">Seu banco,<br>do seu jeito.</div>', unsafe_allow_html=True)
+    # atalhos logo abaixo da conta; Acessar e o botão LIA na zona do polegar
+    with st.container(key="pre_atalhos", horizontal=True, gap="small", horizontal_alignment="distribute"):
+        for tela, icone, rotulo in ATALHOS:
+            if st.button(rotulo, icon=icone, key=f"pre_{_chave(tela)}", width="stretch"):
+                ss.pre_destino = tela
+                st.rerun()
+    if st.button("Acessar", icon=":material/home:", key="pre_acessar", width="stretch"):
+        ss.pre_destino = "Início"
+        st.rerun()
 
     # Lia por voz direto da tela de entrada: consultas sem senha; Pix, contas e abrir telas com rosto (ou senha)
-    r = _lia_voz("lia_voz_pre", tema="escuro", chamada="Fale com a Lia, sem entrar",
-                 dica="Sem senha: “quando vence a fatura?”, “tenho contas a vencer?”. Saldo, valores e pagamentos: ela confirma seu rosto.")
+    r = _lia_voz("lia_voz_pre", tema="escuro", layout="barra", chamada="Fale com a Lia, sem entrar",
+                 dica="Toque e fale. Lembretes sem senha; saldo e pagamentos com seu rosto.")
     if r.consulta:
         evento("Entrada", "lia_consulta", {"comando": r.consulta.get("comando", "")})
     if r.abrir:
@@ -427,14 +435,6 @@ def tela_pre_login() -> None:
         executar_voz(r.executar)
         st.rerun()
 
-    with st.container(key="pre_atalhos", horizontal=True, gap="small", horizontal_alignment="distribute"):
-        for tela, icone, rotulo in ATALHOS:
-            if st.button(rotulo, icon=icone, key=f"pre_{_chave(tela)}", width="stretch"):
-                ss.pre_destino = tela
-                st.rerun()
-    if st.button("Acessar", icon=":material/home:", key="pre_acessar", width="stretch"):
-        ss.pre_destino = "Início"
-        st.rerun()
     estilo.rodape()
 
 
