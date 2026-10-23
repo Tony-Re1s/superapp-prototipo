@@ -149,9 +149,11 @@ button:disabled { opacity: 0.5; }
 .botoes button { flex: 1; }
 
 /* tema escuro (tela de entrada, antes do login) */
-.sa-bio.escuro { background: linear-gradient(145deg, rgba(255,255,255,0.13), rgba(255,255,255,0.04));
-  border-color: rgba(255,255,255,0.18); color: #F2F4F8; -webkit-backdrop-filter: blur(16px) saturate(140%); backdrop-filter: blur(16px) saturate(140%);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 14px 34px rgba(0,0,0,0.38); }
+.sa-bio.escuro { background: linear-gradient(160deg, rgba(190,200,250,0.42) 0%, rgba(128,145,222,0.32) 52%, rgba(96,112,205,0.28) 100%);
+  border: 1px solid rgba(255,255,255,0.26); border-top-color: rgba(255,255,255,0.60); border-left-color: rgba(255,255,255,0.48);
+  color: #F7F8FF; -webkit-backdrop-filter: blur(24px) saturate(150%); backdrop-filter: blur(24px) saturate(150%);
+  box-shadow: inset 0 1px 1px rgba(255,255,255,0.50), inset 0 0 26px rgba(255,255,255,0.10), 0 16px 36px rgba(0,0,30,0.45); }
+.sa-bio.escuro .sub, .sa-bio.escuro .lgpd { color: #E3E8FF !important; }
 .sa-bio.escuro .mic { box-shadow: 0 0 0 6px rgba(236,112,0,0.12), 0 10px 26px rgba(236,112,0,0.45), inset 0 1px 0 rgba(255,255,255,0.35); }
 .sa-bio.escuro .titulo, .sa-bio.escuro .chamada b { color: white; }
 .sa-bio.escuro .sub, .sa-bio.escuro .lgpd { color: #B8C0D4; }
