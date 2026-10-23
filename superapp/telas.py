@@ -397,7 +397,7 @@ def tela_pre_login() -> None:
         st.markdown('<div class="sa-pre-ajuda">?</div>', unsafe_allow_html=True, width="content")
     st.markdown(
         f'<div class="sa-pre-conta"><div class="av">{ss.nome[:1]}{p["nome"].split(" ")[-1][:1]}</div>'
-        f'<div><b>{ss.nome}</b><div class="cpf">CPF •••.456.789-••</div><div class="troca">Trocar conta</div></div></div>',
+        f'<div><b>{ss.nome}</b><span class="cpf">CPF •••.456.789-••</span><div class="troca">Trocar conta</div></div></div>',
         unsafe_allow_html=True)
 
     destino = ss.get("pre_destino")

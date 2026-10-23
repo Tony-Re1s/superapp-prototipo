@@ -9,7 +9,7 @@ CINZA = "#F4F5F7"
 TEXTO = "#1F2430"
 VERDE = "#1B8A4A"
 VERMELHO = "#C62828"
-VERSAO = "v2026.10.22-lia-polegar"  # mostrada no rodapé para conferir qual versão está publicada
+VERSAO = "v2026.10.22-entrada-v3"  # mostrada no rodapé para conferir qual versão está publicada
 
 CSS = f"""
 <style>
@@ -352,8 +352,26 @@ CSS = f"""
           radial-gradient(360px 280px at 105% 92%, rgba(80,110,255,0.28), transparent 66%),
           radial-gradient(260px 200px at 20% 8%, rgba(236,112,0,0.14), transparent 70%) !important; }}
     .sa-pre-conta, .sa-token {{ background: linear-gradient(160deg, rgba(190,200,250,0.50) 0%, rgba(128,145,222,0.40) 52%, rgba(96,112,205,0.36) 100%) !important; -webkit-backdrop-filter: blur(24px) saturate(150%); backdrop-filter: blur(24px) saturate(150%); border: 1px solid rgba(176,184,202,0.42) !important; border-top-color: rgba(222,227,238,0.72) !important; border-left-color: rgba(200,207,222,0.62) !important; border-bottom-color: rgba(140,150,176,0.40) !important; box-shadow: inset 1px 1px 0 rgba(255,255,255,0.30), inset 0 2px 6px rgba(214,220,232,0.22), inset -1px -1px 0 rgba(110,120,150,0.30), inset 0 0 26px rgba(200,208,224,0.10), 0 16px 36px rgba(0,0,30,0.45) !important; }}
-    .st-key-pre_atalhos button span[data-has-shortcut] > span:first-child {{ background: linear-gradient(160deg, rgba(190,200,250,0.50) 0%, rgba(128,145,222,0.40) 52%, rgba(96,112,205,0.36) 100%) !important; -webkit-backdrop-filter: blur(24px) saturate(150%); backdrop-filter: blur(24px) saturate(150%); border: 1px solid rgba(176,184,202,0.42) !important; border-top-color: rgba(222,227,238,0.72) !important; border-left-color: rgba(200,207,222,0.62) !important; border-bottom-color: rgba(140,150,176,0.40) !important; box-shadow: inset 1px 1px 0 rgba(255,255,255,0.30), inset 0 2px 6px rgba(214,220,232,0.22), inset -1px -1px 0 rgba(110,120,150,0.30), inset 0 0 26px rgba(200,208,224,0.10), 0 16px 36px rgba(0,0,30,0.45) !important; }}
     .st-key-pre_acessar button, .st-key-pre_voltar button {{ background: linear-gradient(160deg, rgba(190,200,250,0.50) 0%, rgba(128,145,222,0.40) 52%, rgba(96,112,205,0.36) 100%) !important; -webkit-backdrop-filter: blur(24px) saturate(150%); backdrop-filter: blur(24px) saturate(150%); border: 1px solid rgba(176,184,202,0.42) !important; border-top-color: rgba(222,227,238,0.72) !important; border-left-color: rgba(200,207,222,0.62) !important; border-bottom-color: rgba(140,150,176,0.40) !important; box-shadow: inset 1px 1px 0 rgba(255,255,255,0.30), inset 0 2px 6px rgba(214,220,232,0.22), inset -1px -1px 0 rgba(110,120,150,0.30), inset 0 0 26px rgba(200,208,224,0.10), 0 16px 36px rgba(0,0,30,0.45) !important; }}
+
+    /* entrada v3: conta discreta, atalhos em blocos (ícone + texto dentro), Acessar e LIA embaixo */
+    .sa-pre-conta {{ gap: 9px !important; padding: 5px 16px 5px 5px !important; margin: 4px 0 0 0 !important; }}
+    .sa-pre-conta .av {{ width: 34px !important; height: 34px !important; font-size: 0.82rem !important; }}
+    .sa-pre-conta b {{ font-size: 0.92rem !important; }}
+    .sa-pre-conta .cpf {{ font-size: 0.7rem !important; display: inline; margin-left: 6px; }}
+    .sa-pre-conta .troca {{ font-size: 0.7rem !important; opacity: 0.9; }}
+    .st-key-pre_atalhos {{ margin-top: 22vh !important; }}
+    .st-key-pre_atalhos button, .st-key-pre_atalhos button:hover, .st-key-pre_atalhos button:focus, .st-key-pre_atalhos button:active {{
+         background: linear-gradient(160deg, rgba(190,200,250,0.50) 0%, rgba(128,145,222,0.40) 52%, rgba(96,112,205,0.36) 100%) !important; -webkit-backdrop-filter: blur(24px) saturate(150%); backdrop-filter: blur(24px) saturate(150%); border: 1px solid rgba(176,184,202,0.42) !important; border-top-color: rgba(222,227,238,0.72) !important; border-left-color: rgba(200,207,222,0.62) !important; border-bottom-color: rgba(140,150,176,0.40) !important; box-shadow: inset 1px 1px 0 rgba(255,255,255,0.30), inset 0 2px 6px rgba(214,220,232,0.22), inset -1px -1px 0 rgba(110,120,150,0.30), inset 0 0 26px rgba(200,208,224,0.10), 0 16px 36px rgba(0,0,30,0.45) !important;  border-radius: 18px !important; min-height: 92px !important; padding: 12px 4px 10px 4px !important;
+        transition: transform .15s ease, filter .15s ease; }}
+    .st-key-pre_atalhos button:hover {{ transform: translateY(-2px); filter: brightness(1.08); }}
+    .st-key-pre_atalhos button span[data-has-shortcut] {{ gap: 8px !important; }}
+    .st-key-pre_atalhos button span[data-has-shortcut] > span:first-child {{
+        width: auto !important; height: auto !important; background: transparent !important; border: none !important;
+        box-shadow: none !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }}
+    .st-key-pre_atalhos button [data-testid="stIconMaterial"] {{ font-size: 1.8rem !important; }}
+    .st-key-pre_atalhos button p {{ font-size: 0.74rem !important; line-height: 1.15 !important; font-weight: 600; letter-spacing: 0 !important; }}
+    .st-key-pre_acessar {{ margin-top: 14px !important; }}
 </style>
 """
 

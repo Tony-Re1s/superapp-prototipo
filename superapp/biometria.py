@@ -171,7 +171,7 @@ button:disabled { opacity: 0.5; }
 /* botão LIA em barra (tela de entrada): mesmo tamanho do Acessar, laranja, na zona do polegar */
 .sa-bio.barra, .sa-bio.escuro.barra { background: transparent !important; border: none !important; box-shadow: none !important;
   -webkit-backdrop-filter: none !important; backdrop-filter: none !important; padding: 0 !important; }
-.barra .topo { flex-direction: column-reverse; align-items: stretch; gap: 8px; }
+.barra .topo { flex-direction: column; align-items: stretch; gap: 8px; }
 .barra .chamada { text-align: center; }
 .barra .chamada b { font-size: 0.95rem; }
 .barra .chamada .sub { font-size: 0.78rem; line-height: 1.35; }
