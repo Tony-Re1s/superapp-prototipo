@@ -27,9 +27,8 @@ abre direto na aba. Ali também fica a **Lia por voz**, com segurança por níve
 
 O **Token** também abre sem senha: só gera o código, não movimenta a conta.
 
-Dentro do app, depois do login com rosto, **os menus ficam livres**; o rosto só volta para **efetivar Pix e investimentos**. (Antes: os menus com dados ou operações
-(Pix, Pagar, Cartão, Extrato, Investir, Gastos, Crédito, Seguros) abrem com **verificação de rosto por 3 s**;
-sem rosto (ou sem câmera), pedem a **senha de acesso** (protótipo: `1234`).
+Dentro do app, depois do login com rosto, **os menus ficam livres**; o rosto (3 s) só volta para **efetivar Pix e
+investimentos**. Sem rosto (ou sem câmera), a Lia pede a **senha de acesso** por voz ou digitada (protótipo: `1234`).
 
 **Botão LIA (voz):** a pessoa fala o comando (“pagar o piscineiro 300 reais”, “pagar a conta de luz”); a Lia
 preenche o pagamento e, ao mesmo tempo, valida o rosto por 3 s. Se não identificar o rosto (dirigindo, celular
