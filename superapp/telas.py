@@ -461,7 +461,7 @@ def tela_biometria(tela: str) -> None:
 
 # ----------------------------------------------------------------------------- Lia por voz
 def executar_voz(op: dict) -> None:
-    """Executa a operação que a Lia confirmou por voz (rosto ou senha + ok/seguir)."""
+    """Executa a operação que a Lia confirmou por voz (rosto ou senha + "confirmar")."""
     ss = st.session_state
     valor_op = float(op.get("valor") or 0)
     metodo = {"rosto": "rosto confirmado", "senha": "rosto não identificado → senha falada",

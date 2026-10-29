@@ -32,7 +32,7 @@ investimentos**. Sem rosto (ou sem câmera), a Lia pede a **senha de acesso** po
 
 **Botão LIA (voz):** a pessoa fala o comando (“pagar o piscineiro 300 reais”, “pagar a conta de luz”); a Lia
 preenche o pagamento e, ao mesmo tempo, valida o rosto por 3 s. Se não identificar o rosto (dirigindo, celular
-na mochila), a Lia **fala** e pede a senha por voz; depois lê os dados e pede “ok” ou “seguir” antes de executar.
+na mochila), a Lia **fala** e pede a senha por voz; depois lê os dados e pede “confirmar” antes de executar.
 Funciona também digitando (navegadores sem reconhecimento de voz).
 
 **Como a Lia entende a voz:** o navegador transcreve a fala (ditado do próprio aparelho, até 4 leituras do mesmo
@@ -40,14 +40,14 @@ Funciona também digitando (navegadores sem reconhecimento de voz).
 lê valores falados ("15 e 90" = R$ 15,90) e separa saudação, pedido de ajuda, consulta, abrir tela ou transação.
 Sem chave ou sem resposta em 12 s, valem as regras locais, que também aceitam nomes parecidos. Saudação recebe
 conversa ("Oi! Em que posso te ajudar?"); a lista do que a Lia faz só aparece se a pessoa perguntar ou após dois
-pedidos não entendidos. A IA só interpreta: rosto/senha e o "ok" continuam obrigatórios para executar.
+pedidos não entendidos. A IA só interpreta: rosto/senha e o "confirmar" continuam obrigatórios para executar.
 
 **Investimentos por voz:** pergunta geral ("qual o melhor investimento?") é informação do produto: a Lia
 responde sem senha e sem abrir tela, apresentando as opções por objetivo (reserva, longo prazo, renda variável) com
 rentabilidade e liquidez — sem dizer "o melhor para você", porque recomendação personalizada exige o perfil de
 investidor (suitability, CVM). "Quanto eu tenho investido?" é dado pessoal: rosto ou senha. "Aplicar 500 no CDB" e
 "resgatar 200 do Tesouro" são transações e funcionam como o Pix: a Lia pergunta o que faltar (produto, valor),
-confere saldo ou valor aplicado, confirma o rosto (ou a senha), lê os dados, pede "ok" e executa direto. Depois de
+confere saldo ou valor aplicado, confirma o rosto (ou a senha), lê os dados, pede "confirmar" e executa direto. Depois de
 apresentar as opções, "sim" ou "no CDB, 500" já seguem para a aplicação.
 
 **Voz mais fluida:** a resposta da IA já volta com o áudio (uma ida ao servidor, não duas); frases fixas são geradas
@@ -118,7 +118,7 @@ superapp/dados.py           personas (Marisa/Lucas), extrato, fatura, contas, in
 superapp/estilo.py          identidade visual (laranja/azul) e componentes
 superapp/telas.py           todas as telas
 superapp/ia.py              assistente: API Claude + regras + escalonamento humano
-superapp/biometria.py       rosto no aparelho (menus) e Lia por voz (comando, rosto/senha, ok/seguir)
+superapp/biometria.py       rosto no aparelho (menus) e Lia por voz (comando, rosto/senha, confirmar)
 static/faceapi/             detector de rosto (face-api, MIT) servido pelo próprio app
 superapp/db.py              Supabase (Session pooler) com fallback em CSV
 schema.sql                  referência das tabelas

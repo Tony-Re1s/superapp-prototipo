@@ -6,7 +6,7 @@ Dois componentes Streamlit (st.components.v2), que rodam no navegador:
   Achou → libera a tela. Não achou (ou sem câmera) → pede a senha de acesso.
 * ``lia_voz``: botão LIA. A pessoa fala o comando ("pagar o piscineiro 300 reais"); a Lia preenche
   o pagamento e, ao mesmo tempo, procura o rosto por 3 segundos. Sem rosto (dirigindo, celular na
-  mochila…), a Lia fala e pede a senha de acesso por voz. Depois lê os dados, pede "ok" ou "seguir"
+  mochila…), a Lia fala e pede a senha de acesso por voz. Depois lê os dados, pede "confirmar"
   e só então manda a operação para o app executar.
 
 LGPD: a detecção roda no navegador (face-api, servido de /app/static/faceapi). Nenhuma imagem é
@@ -503,6 +503,8 @@ const NUM = {zero:0,um:1,uma:1,dois:2,duas:2,tres:3,quatro:4,cinco:5,seis:6,sete
   trezentas:300,quatrocentos:400,quinhentos:500,seiscentos:600,setecentos:700,oitocentos:800,novecentos:900};
 const SINONIMOS = {luz:"enel",energia:"enel",internet:"vivo",fibra:"vivo",condominio:"condominio",academia:"academia",ipva:"ipva"};
 const SIM = /\b(ok|okay|okey|oquei|seguir|segue|sigo|siga|confirm\w*|sim|pode|manda|vai|isso)\b/;
+// confirmação final de transação: só "confirmar" (falado ou no botão)
+const CONFIRMA = /\bconfirm\w*\b/;
 const NAO = /\b(nao|cancel\w*|pare|para tudo|desist\w*)\b/;
 const TRANSACAO = /\b(pag\w*|pix|manda\w*|mande|transf\w*|envi\w*|deposit\w*|quit\w*)\b/;
 const ABRIR = /\b(abr\w*|mostr\w*|ver|veja|entr\w*|acess\w*)\b/;
@@ -716,7 +718,7 @@ export default function (component) {
       $(".enviar").onclick = () => entregar(ui.campo.value.trim(), "texto");
       ui.campo.onkeydown = (e) => { if (e.key === "Enter") entregar(ui.campo.value.trim(), "texto"); };
       $(".falar").onclick = () => ouvir().then((t) => entregar(t, "voz"));
-      $(".confirmar").onclick = () => entregar("ok", "botao");
+      $(".confirmar").onclick = () => entregar("confirmar", "botao");
       $(".cancelar").onclick = () => entregar("cancelar", "botao");
       ouvir().then((t) => entregar(t, "voz"));
     });
@@ -870,20 +872,20 @@ export default function (component) {
         }
         return null;
       }
-      // confirmação final por voz: "ok"/"seguir" (2 tentativas)
+      // confirmação final por voz: "confirmar" (2 tentativas)
       async function confirmarOk() {
         for (let tent = 1; tent <= 2; tent++) {
-          const rr = await resposta({ placeholder: "Diga ou digite: ok / seguir / cancelar", botoes: true });
+          const rr = await resposta({ placeholder: "Diga ou digite: confirmar / cancelar", botoes: true });
           ui.voce.textContent = (rr.origem === "voz" ? "🎤 " : "") + rr.v;
           const r = norm(rr.v);
           if (NAO.test(r)) return false;
-          if (SIM.test(r)) return true;
-          if (tent === 1) await falar("Não entendi. Diga ok para confirmar ou cancelar para desistir.");
+          if (CONFIRMA.test(r)) return true;
+          if (tent === 1) await falar("Não entendi. Diga confirmar para concluir, ou cancelar para desistir.");
         }
         return false;
       }
       // aplicar ou resgatar: como o Pix — a Lia completa o que faltar, confirma o rosto (ou a senha),
-      // lê os dados, pede "ok" e executa direto, sem abrir a tela de investimentos
+      // lê os dados, pede "confirmar" e executa direto, sem abrir a tela de investimentos
       const itI = ent && ent.intencao;
       const nI = norm(cmd).replace(/investimentos?/g, "");
       const opInv = itI === "aplicar" ? "Aplicar" : itI === "resgatar" ? "Resgatar"
@@ -926,7 +928,7 @@ export default function (component) {
         if (!valid) return fimFluxo();
         const pre = valid.metodo === "senha" ? "Senha confirmada. " : "Rosto confirmado. ";
         const liq = aplicar ? "" : ` O dinheiro cai na conta conforme a liquidez: ${prod.liquidez}.`;
-        await falar(`${pre}${aplicar ? "Aplicação" : "Resgate"} de ${valorFalado(val)} ${aplicar ? "no" : "do"} ${prod.produto}.${liq} Diga ok ou seguir para confirmar.`);
+        await falar(`${pre}${aplicar ? "Aplicação" : "Resgate"} de ${valorFalado(val)} ${aplicar ? "no" : "do"} ${prod.produto}.${liq} Diga confirmar para concluir.`);
         if (!(await confirmarOk())) { status("Operação cancelada", "alerta"); await falar("Tudo bem, não fiz nada."); return fimFluxo(); }
         status(aplicar ? "Aplicação feita ✓" : "Resgate solicitado ✓", "ok");
         await falar(aplicar ? `Pronto! Apliquei ${valorFalado(val)} no ${prod.produto}.` : `Pronto! Resgate de ${valorFalado(val)} solicitado.`);
@@ -1046,16 +1048,16 @@ export default function (component) {
       if (!valid) return fimFluxo();
       const { metodo, rosto } = valid;
 
-      // 3) confirmação com "ok" ou "seguir"
+      // 3) confirmação: só "confirmar"
       const aviso = op.novo ? " Lembre: é um destinatário novo, confira os dados." : "";
-      await falar(`${metodo === "sessao" ? "" : metodo === "senha" ? "Senha confirmada. " : "Rosto confirmado. "}${falaDados}.${aviso} Diga ok ou seguir para confirmar.`);
+      await falar(`${metodo === "sessao" ? "" : metodo === "senha" ? "Senha confirmada. " : "Rosto confirmado. "}${falaDados}.${aviso} Diga confirmar para concluir.`);
       let conf = null;
       for (let tent = 1; tent <= 2 && conf === null; tent++) {
-        const rr = await resposta({ placeholder: "Diga ou digite: ok / seguir / cancelar", botoes: true });
+        const rr = await resposta({ placeholder: "Diga ou digite: confirmar / cancelar", botoes: true });
         ui.voce.textContent = (rr.origem === "voz" ? "🎤 " : "") + rr.v;
         const r = norm(rr.v);
-        if (NAO.test(r)) conf = false; else if (SIM.test(r)) conf = true;
-        else if (tent === 1) await falar("Não entendi. Diga ok para confirmar ou cancelar para desistir.");
+        if (NAO.test(r)) conf = false; else if (CONFIRMA.test(r)) conf = true;
+        else if (tent === 1) await falar("Não entendi. Diga confirmar para concluir, ou cancelar para desistir.");
       }
       if (!conf) { status("Operação cancelada", "alerta"); await falar("Tudo bem, não fiz nada."); return fimFluxo(); }
 
