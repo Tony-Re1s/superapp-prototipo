@@ -125,6 +125,10 @@ Regras:
   (sugira bloquear o cartão / limitar Pix) e use "escalar_humano" com motivo "segurança".
 - Perguntas sobre saldo, fatura, contas, gastos e investimentos: responda com os números do contexto.
 - Não fale de temas fora do banco; redirecione com gentileza.
+- Saudação ("oi", "bom dia"): responda como pessoa ("Oi, Ana! Em que posso te ajudar?"), sem listar o que você faz.
+  Só liste suas funções se o cliente perguntar o que você faz ou se já não entendeu duas vezes.
+- O texto pode vir de reconhecimento de voz, com palavras trocadas ("pineiro" por "piscineiro", "15 e 90" por R$ 15,90):
+  interprete pelo contexto e pelos nomes do CONTEXTO antes de dizer que não entendeu.
 """
 
 
@@ -311,9 +315,12 @@ def _regras(mensagem: str, ctx: dict) -> dict:
     if "extrato" in m or "movimenta" in m:
         return {"resposta": "Abri seu extrato. Você pode filtrar por período e tipo.", "acao": {"tipo": "ver_extrato"}}
 
-    if re.search(r"\b(oi|ola|bom dia|boa tarde|boa noite|eai|e ai)\b", m):
-        return {"resposta": f"Oi, {p['primeiro_nome']}! Que bom falar com você. Posso fazer Pix, pagar contas, mostrar fatura, gastos ou "
-                "bloquear seu cartão. Me conta o que precisa.", "acao": {"tipo": "nenhuma"}}
+    if re.search(r"\b(o que (voce|vc) (faz|sabe|consegue)|me ajuda|ajuda|como funciona)\b", m):
+        return {"resposta": f"Claro, {p['primeiro_nome']}. Eu faço Pix, pago contas, mostro saldo, fatura, gastos e investimentos, "
+                "bloqueio o cartão e, se precisar, chamo alguém da equipe. É só pedir.", "acao": {"tipo": "nenhuma"}}
+
+    if re.search(r"\b(oi|ola|bom dia|boa tarde|boa noite|eai|e ai|tudo bem)\b", m):
+        return {"resposta": f"Oi, {p['primeiro_nome']}! Tudo bem? Em que posso te ajudar hoje?", "acao": {"tipo": "nenhuma"}}
 
     return {"resposta": f"Desculpa, {p['primeiro_nome']}, não peguei bem. Consigo fazer Pix, pagar contas, mostrar saldo, fatura, gastos e investimentos, "
             "ou bloquear seu cartão. Se preferir, chamo o Rafael, da equipe, para falar com você.",
@@ -355,3 +362,92 @@ def responder(mensagem: str, historico: list[dict], ctx: dict) -> dict:
 
     obj.update({"fonte": fonte, "frustrado": frustrado, "seguranca": seguranca, "escalar": escalar})
     return obj
+
+
+# ------------------------------------------------------------------ Lia por voz: entender o comando
+TELAS_VOZ = ["Extrato", "Pix", "Cartão", "Pagar", "Investir", "Gastos", "Início"]
+
+FERRAMENTA_VOZ = {
+    "name": "entender_comando",
+    "description": "Devolve o que o cliente pediu à Lia por voz, de forma estruturada.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "intencao": {"type": "string", "enum": [
+                "saudacao", "ajuda", "consulta_saldo", "consulta_limite", "consulta_fatura", "consulta_vencimento_fatura",
+                "consulta_contas", "abrir_tela", "pix", "pagar_conta", "cancelar", "outro"]},
+            "contato": {"type": ["integer", "null"], "description": "Número do contato da lista, no Pix para alguém salvo"},
+            "contato_novo": {"type": ["string", "null"], "description": "Nome dito, se o destinatário NÃO está na lista"},
+            "conta": {"type": ["integer", "null"], "description": "Número da conta a pagar da lista"},
+            "valor": {"type": ["number", "null"], "description": "Valor em reais, se foi dito"},
+            "tela": {"type": ["string", "null"], "enum": TELAS_VOZ + [None], "description": "Tela a abrir, em abrir_tela"},
+            "resposta": {"type": "string", "description": "Frase curta e natural para a Lia FALAR em saudacao, ajuda ou outro (vazia nas demais)"},
+            "confianca": {"type": "number", "description": "0 a 1: quão certa é a interpretação"},
+        },
+        "required": ["intencao", "resposta", "confianca"],
+    },
+}
+
+SISTEMA_VOZ = """Você é a Lia, assistente de voz de um banco digital (protótipo acadêmico). Você recebe a TRANSCRIÇÃO do que
+o cliente falou — pode ter erros do reconhecimento de voz — e devolve a intenção pela ferramenta entender_comando.
+Regras:
+- Nomes trocados pelo ditado: escolha o contato ou a conta mais parecida em som/escrita ("pineiro", "pisineiro" = Piscineiro;
+  "luz" = conta de energia). Só use contato_novo se nada na lista for parecido.
+- Valores falados: "quinze e noventa", "15 e 90", "15 reais e 90" = 15,90. "trezentos" = 300. "um pix" NÃO é valor.
+  "dois mil" = 2000. Se não houver valor, deixe nulo.
+- "pagar o piscineiro 300 reais" é pix (contato), não pagar_conta. pagar_conta é para contas da lista (luz, internet…).
+- Saudação ("oi", "bom dia", "tudo bem"): intencao saudacao, resposta curta e calorosa, SEM listar funções.
+- Pedido de ajuda ("o que você faz?"): intencao ajuda, resposta listando em uma frase: Pix, pagar contas, saldo, limite,
+  fatura, contas a vencer e abrir telas do app.
+- Fora do banco ou sem sentido: intencao outro, resposta pedindo para repetir ou dizendo com gentileza que não faz isso.
+- Responda em português do Brasil, frases curtas, pois a resposta é falada em voz alta."""
+
+
+def interpretar_voz(texto: str, alternativas: list[str], nome: str, contatos: list[dict], contas: list[dict],
+                    logado: bool = False) -> dict | None:
+    """Entende o comando de voz com a API. None = sem API ou erro (o navegador usa as regras locais)."""
+    if not api_disponivel():
+        return None
+    try:
+        import anthropic
+
+        cliente = anthropic.Anthropic(api_key=st.secrets["anthropic"]["api_key"], timeout=8.0, max_retries=0)
+        modelo = st.secrets["anthropic"].get("modelo", MODELO_PADRAO)
+        alts = [a for a in (alternativas or []) if a and a.strip() and a.strip() != texto.strip()][:4]
+        ctx = (f"Cliente: {nome}. {'Já está dentro do app.' if logado else 'Ainda não entrou no app.'}\n"
+               "Contatos Pix salvos:\n" + "\n".join(f"{i}. {c['nome']} ({c.get('banco', '')})" for i, c in enumerate(contatos)) +
+               "\nContas a pagar:\n" + "\n".join(f"{i}. {c['descricao']} — R$ {c['valor']:.2f}, vence {c['vencimento']}"
+                                                   for i, c in enumerate(contas)) +
+               "\nTelas do app: " + ", ".join(TELAS_VOZ) +
+               f"\n\nO cliente falou: \"{texto}\"" +
+               ("\nOutras leituras possíveis do mesmo áudio: " + " | ".join(f'"{a}"' for a in alts) if alts else ""))
+        resp = cliente.messages.create(
+            model=modelo, max_tokens=300,
+            system=[{"type": "text", "text": SISTEMA_VOZ, "cache_control": {"type": "ephemeral"}}],
+            tools=[FERRAMENTA_VOZ], tool_choice={"type": "tool", "name": "entender_comando"},
+            messages=[{"role": "user", "content": ctx}],
+        )
+        bloco = next(b for b in resp.content if getattr(b, "type", "") == "tool_use")
+        d = dict(bloco.input)
+
+        def _idx(v, n):
+            try:
+                i = int(v)
+                return i if 0 <= i < n else None
+            except (TypeError, ValueError):
+                return None
+
+        d["contato"] = _idx(d.get("contato"), len(contatos))
+        d["conta"] = _idx(d.get("conta"), len(contas))
+        if d.get("valor") is not None:
+            try:
+                d["valor"] = abs(float(d["valor"]))
+            except (TypeError, ValueError):
+                d["valor"] = None
+        if d.get("tela") not in TELAS_VOZ:
+            d["tela"] = None
+        d["uso"] = {"entrada": resp.usage.input_tokens, "saida": resp.usage.output_tokens}
+        return d
+    except Exception as e:  # noqa: BLE001
+        st.session_state["ia_erro_voz"] = str(e)
+        return None

@@ -35,6 +35,13 @@ preenche o pagamento e, ao mesmo tempo, valida o rosto por 3 s. Se não identifi
 na mochila), a Lia **fala** e pede a senha por voz; depois lê os dados e pede “ok” ou “seguir” antes de executar.
 Funciona também digitando (navegadores sem reconhecimento de voz).
 
+**Como a Lia entende a voz:** o navegador transcreve a fala (ditado do próprio aparelho, até 4 leituras do mesmo
+áudio); o texto vai para a API Claude, que escolhe o contato ou a conta mais parecida ("pineiro" → Piscineiro),
+lê valores falados ("15 e 90" = R$ 15,90) e separa saudação, pedido de ajuda, consulta, abrir tela ou transação.
+Sem chave ou sem resposta em 12 s, valem as regras locais, que também aceitam nomes parecidos. Saudação recebe
+conversa ("Oi! Em que posso te ajudar?"); a lista do que a Lia faz só aparece se a pessoa perguntar ou após dois
+pedidos não entendidos. A IA só interpreta: rosto/senha e o "ok" continuam obrigatórios para executar.
+
 LGPD: a detecção de rosto roda no navegador (face-api, em `static/faceapi`, servido com
 `server.enableStaticServing`). Nenhuma imagem é gravada ou enviada. No protótipo a checagem é de presença de
 rosto, não de identidade.

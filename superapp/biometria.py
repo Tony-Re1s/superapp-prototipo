@@ -86,6 +86,18 @@ def _ponte_tts(res, chave: str) -> None:
         st.session_state[f"_tts_{chave}"] = {"id": pedido.get("id"), "b64": b64} if b64 else {"id": pedido.get("id"), "erro": True}
         st.rerun()
 
+def _ponte_nlu(res, chave: str, nome: str, contatos: list[dict], contas: list[dict], logado: bool) -> None:
+    """O navegador pediu para entender um comando falado: a IA interpreta e devolve no próximo render."""
+    pedido = getattr(res, "nlu", None)
+    if pedido and pedido.get("texto"):
+        from . import ia
+        r = ia.interpretar_voz(str(pedido["texto"])[:300], [str(a)[:300] for a in (pedido.get("alternativas") or [])],
+                               nome, contatos, contas, logado)
+        st.session_state[f"_nlu_{chave}"] = ({"id": pedido.get("id"), "resultado": r} if r
+                                             else {"id": pedido.get("id"), "erro": True})
+        st.rerun()
+
+
 SENHA_ACESSO = "1234"  # senha fictícia do protótipo (mostrada na tela)
 SEGUNDOS_ROSTO = 3
 
@@ -300,6 +312,28 @@ if (!G.audioLigado) { G.audioLigado = true; ["pointerdown", "touchend", "click",
 function receberTts(raiz, data) {
   const t = data && data.tts;
   if (t && raiz.__ttsPend && raiz.__ttsPend[t.id]) { const f = raiz.__ttsPend[t.id]; delete raiz.__ttsPend[t.id]; f(t); }
+  const n = data && data.nlu;
+  if (n && raiz.__nluPend && raiz.__nluPend[n.id]) { const f = raiz.__nluPend[n.id]; delete raiz.__nluPend[n.id]; f(n); }
+}
+// entender o comando com a IA (servidor). null = sem IA ou demorou: o navegador usa as regras locais
+async function entenderLia(texto, alternativas, raiz) {
+  if (!raiz || !raiz.__set || G.nluOff) return null;
+  raiz.__nluPend = raiz.__nluPend || {};
+  const id = "n" + Date.now() + Math.floor(Math.random() * 1000);
+  const r = await new Promise((res) => { raiz.__nluPend[id] = res; setTimeout(() => res(null), 12000);
+    raiz.__set("nlu", { id, texto, alternativas: alternativas || [] }); });
+  if (r && r.erro) { G.nluOff = true; return null; }
+  return (r && r.resultado) || null;
+}
+// semelhança entre palavras (bigramas): "pineiro" × "piscineiro" ≈ 0,8 — corrige o ditado quando a IA não responde
+function parecido(a, b) {
+  a = norm(a); b = norm(b);
+  if (a === b) return 1;
+  if (a.length < 3 || b.length < 3) return 0;
+  const bg = (w) => { const m = new Map(); for (let i = 0; i < w.length - 1; i++) { const k = w.slice(i, i + 2); m.set(k, (m.get(k) || 0) + 1); } return m; };
+  const x = bg(a), y = bg(b); let c = 0;
+  for (const [k, v] of x) c += Math.min(v, y.get(k) || 0);
+  return (2 * c) / ((a.length - 1) + (b.length - 1));
 }
 async function tocarB64(b64) {
   const ac = audioCtx(); if (!ac) throw new Error("sem audio");
@@ -470,7 +504,8 @@ const TELAS_VOZ = [[/\bextrato\b|movimenta/, "Extrato", "o extrato"], [/\bpix\b/
 // a "qual o valor?", qualquer número. "um/uma" sozinho é artigo ("manda um Pix"), não valor.
 const PALAVRA_DINHEIRO = /^(reais|real|conto|contos|pila|mil)$/;
 function valorDe(t, livre = false) {
-  const n = " " + norm(t).replace(/r\$\s*/g, " rs ") + " ";
+  // ditado: "15 e 90" / "15 reais e 90" = 15,90 (reais e centavos), não 15 + 90
+  const n = " " + norm(t).replace(/r\$\s*/g, " rs ").replace(/\b(\d{1,4})(?:\s+reais?)?\s+e\s+(\d{2})\b(?!\s*mil)/g, "$1,$2 reais") + " ";
   const re = /(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?/g;
   const cands = []; let m;
   while ((m = re.exec(n))) {
@@ -534,6 +569,13 @@ function bancoDe(t) {
 const agenciaDe = (t) => { const d = digitos(t); return d.length >= 3 && d.length <= 5 ? d : null; };
 const contaDe = (t) => { const d = digitos(t); return d.length >= 4 && d.length <= 13 ? d.slice(0, -1) + "-" + d.slice(-1) : null; };
 const CANCELAR = /\b(cancel\w*|desist\w*|para tudo|esquece|deixa pra la)\b/;
+const IGNORA_NOME = /^(para|pra|pro|reais|real|conto|contos|valor|pix|manda|mande|mandar|envia|enviar|pagar|paga|pague|transferir|transfere|quero|fazer|faz|favor|depois|agora|hoje|amanha|minha|meu|conta|dela|dele)$/;
+const SAUDACAO = /^\s*(oi|ola|ola lia|oi lia|bom dia|boa tarde|boa noite|e ai|eai|tudo bem|tudo bom|opa)[\s!?.,]*(lia)?[\s!?.,]*$/;
+const AJUDA_VOZ = /\b(o que (voce|vc|tu) (faz|sabe|consegue|pode)|me ajuda|ajuda|como funciona|quais (sao )?(as )?(opcoes|funcoes))\b/;
+const TELA_POR_NOME = { "Extrato": "o extrato", "Pix": "o Pix", "Cartão": "o cartão", "Pagar": "os pagamentos", "Investir": "os investimentos", "Gastos": "os gastos", "Início": "a sua conta" };
+function textoAjuda(d) {
+  return `Eu faço Pix, pago contas, digo seu saldo, limite e fatura, lembro das contas a vencer e abro as telas do app. ${d.logado ? "" : "Para valores e transações, eu confirmo seu rosto ou a senha. "}O que você precisa?`;
+}
 // valor para a Lia falar: "300 reais", "119 reais e 90 centavos"
 function valorFalado(v) {
   const r = Math.floor(v), c = Math.round((v - r) * 100);
@@ -559,6 +601,14 @@ function destinoDe(t, contatos, contas) {
     const extras = norm((ct.nome.match(/\((.*?)\)/) || ["", ""])[1]).split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && w !== "seu" && w !== "dona");
     if (toks.concat(extras).some((w) => n.includes(" " + w))) return { tipo: "pix", contato: ct };
   }
+  // ditado trocou o nome ("pineiro" → Piscineiro): aceita o contato mais parecido
+  const ditas = n.split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !(w in NUM) && !IGNORA_NOME.test(w));
+  let melhor = null, nota = 0;
+  for (const ct of contatos) {
+    const toks = norm(ct.nome).replace(/\(.*?\)/g, " ").split(/[^a-z0-9]+/).filter((w) => w.length >= 4);
+    for (const w of ditas) for (const t of toks) { const p = parecido(w, t); if (p > nota) { nota = p; melhor = ct; } }
+  }
+  if (melhor && nota >= 0.6) return { tipo: "pix", contato: melhor, aproximado: true };
   const m = norm(t).match(/\b(?:para|pra|pro|ao|a|o)\s+(?:(?:meu|minha|seu|sua|o|a)\s+)?([a-z]+(?:\s+[a-z]+)?)/);
   const ign = /^(conta|valor|pix|de|reais|real|um|uma|transferencia|transferir|pagamento|boleto|fatura|cartao|e|no|na|com)$/;
   if (m && !ign.test(m[1].split(" ")[0])) {
@@ -584,7 +634,7 @@ export default function (component) {
     painel: $(".painel"), fala: $(".fala"), voce: $(".voce"), op: $(".op"), cam: $(".op .cam"), icone: $(".op .icone"),
     status: $(".status"), entrada: $(".entrada"), campo: $(".entrada input"), botoes: $(".botoes"), erro: $(".erro"), mic: $(".mic"),
   };
-  let rodando = false;
+  let rodando = false, ultimasAlts = [];
 
   function falar(texto) {
     ui.fala.textContent = texto;
@@ -594,12 +644,17 @@ export default function (component) {
     return new Promise((res) => {
       if (!SR) return res(null);
       let final = "", parcial = "", feito = false;
-      const r = new SR(); r.lang = "pt-BR"; r.interimResults = true; r.maxAlternatives = 1;
+      const r = new SR(); r.lang = "pt-BR"; r.interimResults = true; r.maxAlternatives = 4;
       const fim = () => { if (feito) return; feito = true; ui.mic.classList.remove("ativo"); try { r.stop(); } catch (e) {} res((final || parcial).trim() || null); };
       r.onresult = (e) => {
         let t = ""; for (const x of e.results) t += x[0].transcript;
         parcial = t; ui.voce.textContent = "🎤 " + t;
-        if (e.results[e.results.length - 1].isFinal) final = t;
+        const ult = e.results[e.results.length - 1];
+        if (ult.isFinal) {
+          final = t;
+          // outras leituras do mesmo áudio (só quando é um resultado único), para a IA escolher a mais provável
+          ultimasAlts = e.results.length === 1 ? Array.from(ult).map((a) => (a.transcript || "").trim()).filter((x) => x && x !== t.trim()) : [];
+        }
       };
       r.onerror = () => fim(); r.onend = () => fim();
       setTimeout(fim, ms);
@@ -610,7 +665,8 @@ export default function (component) {
   function resposta({ placeholder = "", tipo = "text", botoes = false } = {}) {
     return new Promise((res) => {
       let feito = false;
-      const entregar = (v, origem) => { if (feito || !v) return; feito = true; ui.entrada.classList.add("escondido"); ui.botoes.classList.add("escondido"); res({ v, origem }); };
+      const entregar = (v, origem) => { if (feito || !v) return; feito = true; ui.entrada.classList.add("escondido"); ui.botoes.classList.add("escondido");
+        res({ v, origem, alts: origem === "voz" ? ultimasAlts.slice() : [] }); };
       ui.campo.value = ""; ui.campo.type = tipo; ui.campo.placeholder = placeholder;
       ui.campo.inputMode = tipo === "password" ? "numeric" : "text";
       ui.entrada.classList.remove("escondido");
@@ -659,21 +715,22 @@ export default function (component) {
   }
 
   // consultas: livres só os lembretes (sem valores nem fornecedores); valores pedem rosto ou senha
-  function consulta(cmd, d) {
+  function consulta(cmd, d, ent) {
     const n = norm(cmd);
-    if (TRANSACAO.test(n) || ABRIR_FORTE.test(n)) return null;
-    const querValor = /\b(quanto|valor|valores|total|quais|qual)\b/.test(n);
-    if (/\b(saldo|quanto (eu )?tenho|quanto tem)\b/.test(n))
+    const it = ent && ent.intencao;
+    if (!it && (TRANSACAO.test(n) || ABRIR_FORTE.test(n))) return null;
+    const querValor = it === "consulta_contas" ? /\b(quanto|valor|valores|total|quais|qual)\b/.test(n) : /\b(quanto|valor|valores|total|quais|qual)\b/.test(n);
+    if (it === "consulta_saldo" || (!it && /\b(saldo|quanto (eu )?tenho|quanto tem)\b/.test(n)))
       return { protegido: true, assunto: "Saldo", texto: () => `Seu saldo disponível é de ${valorFalado(D().saldo)}.` };
-    if (/\blimite\b/.test(n))
+    if (it === "consulta_limite" || (!it && /\blimite\b/.test(n)))
       return { protegido: true, assunto: "Limite do cartão", texto: () => `Você tem ${valorFalado(D().limite_disponivel)} de limite disponível no cartão.` };
-    if (/\b(fatura|cartao)\b/.test(n)) {
+    if (it === "consulta_fatura" || it === "consulta_vencimento_fatura" || (!it && /\b(fatura|cartao)\b/.test(n))) {
       if (!d.fatura) return { protegido: false, texto: () => "Você não tem fatura em aberto." };
-      if (/\b(quando|vence|vencimento|dia)\b/.test(n) && !/\b(quanto|valor)\b/.test(n))
+      if (it === "consulta_vencimento_fatura" || (!it && /\b(quando|vence|vencimento|dia)\b/.test(n) && !/\b(quanto|valor)\b/.test(n)))
         return { protegido: false, texto: () => `A fatura do cartão vence dia ${d.fatura.vencimento}.` };
       return { protegido: true, assunto: "Valor da fatura", texto: () => `Sua fatura está em ${valorFalado(D().fatura.valor)} e vence dia ${D().fatura.vencimento}.` };
     }
-    if (/\b(contas|boletos?|vence|vencem|vencimentos?|pendentes?)\b|\bconta (a pagar|vencida)/.test(n)) {
+    if (it === "consulta_contas" || (!it && (/\b(contas|boletos?|vence|vencem|vencimentos?|pendentes?)\b|\bconta (a pagar|vencida)/.test(n)))) {
       const venc = d.contas.filter((c) => c.status === "vencida").length, abertas = d.contas.length - venc;
       if (!d.contas.length) return { protegido: false, texto: () => "Você não tem contas pendentes." };
       if (querValor)
@@ -685,7 +742,9 @@ export default function (component) {
     }
     return null;
   }
-  function telaPedida(cmd) {
+  function telaPedida(cmd, ent) {
+    if (ent && ent.intencao === "abrir_tela" && ent.tela && TELA_POR_NOME[ent.tela]) return { tela: ent.tela, nome: TELA_POR_NOME[ent.tela] };
+    if (ent && ent.intencao) return null;
     const n = norm(cmd);
     if (!ABRIR.test(n)) return null;
     for (const [re, tela, nome] of TELAS_VOZ) if (re.test(n)) return { tela, nome };
@@ -701,14 +760,31 @@ export default function (component) {
     status("");
     const d = D();
     try {
-      // 1) comando
+      // 1) comando — a Lia conversa: saudação responde como pessoa, "não entendi" pede para repetir,
+      //    e só na 3ª tentativa (ou se pedirem) ela lista o que sabe fazer
       await falar(`Oi, ${d.nome}! O que você precisa?`);
-      let cmd = (await resposta({ placeholder: "Ou digite: pagar o piscineiro 300 reais" })).v;
-      ui.voce.textContent = "🎤 " + cmd;
-      if (NAO.test(norm(cmd))) { await falar("Tudo bem, cancelei."); return fimFluxo(); }
+      let cmd = null, ent = null, pronto = false;
+      for (let tent = 1; tent <= 3 && !pronto; tent++) {
+        const r = await resposta({ placeholder: "Ou digite: pagar o piscineiro 300 reais" });
+        cmd = r.v; ui.voce.textContent = (r.origem === "voz" ? "🎤 " : "") + cmd;
+        const n = norm(cmd);
+        if (NAO.test(n) && !TRANSACAO.test(n)) { await falar("Tudo bem, cancelei."); return fimFluxo(); }
+        status("Entendendo…"); ent = await entenderLia(cmd, r.alts, raiz); status("");
+        const it = ent && ent.intencao;
+        if (it === "cancelar") { await falar("Tudo bem, cancelei."); return fimFluxo(); }
+        if (it === "saudacao" || (!it && SAUDACAO.test(n))) {
+          await falar((ent && ent.resposta) || `Oi, ${d.nome}! Tudo bem? Em que posso te ajudar?`); continue;
+        }
+        if (it === "ajuda" || (!it && AJUDA_VOZ.test(n))) { await falar(textoAjuda(d)); continue; }
+        if (it === "outro") {
+          await falar(tent < 3 ? ((ent && ent.resposta) || "Não entendi direito. Pode repetir?") : textoAjuda(d)); continue;
+        }
+        pronto = true;
+      }
+      if (!pronto) { await falar("Quando precisar, é só me chamar."); return fimFluxo(); }
 
       // consulta: lembretes respondem na hora; valores (saldo, limite, fatura, contas) pedem rosto ou senha
-      const info = consulta(cmd, d);
+      const info = consulta(cmd, d, ent);
       if (info) {
         status("");
         if (info.protegido && !d.logado) {
@@ -724,7 +800,7 @@ export default function (component) {
       }
 
       // "abrir o extrato", "ver meu cartão": valida o rosto e abre a tela
-      const abrir = telaPedida(cmd);
+      const abrir = telaPedida(cmd, ent);
       if (abrir) {
         ui.op.classList.remove("escondido");
         $(".f-tipo").textContent = "Abrir no app"; $(".f-para").textContent = abrir.nome;
@@ -736,8 +812,10 @@ export default function (component) {
         raiz.__set("abrir", { tela: abrir.tela, metodo: v.metodo });
         return;
       }
-      if (!TRANSACAO.test(norm(cmd)) && !destinoDe(cmd, d.contatos, d.contas)) {
-        await falar("Sem senha eu te lembro do vencimento da fatura e das contas a vencer. Para saldo, valores, Pix, pagamentos ou abrir o app, eu confirmo seu rosto antes.");
+      const itIA = ent && ent.intencao, transacaoIA = itIA === "pix" || itIA === "pagar_conta";
+      if (!transacaoIA && !TRANSACAO.test(norm(cmd)) && !destinoDe(cmd, d.contatos, d.contas)) {
+        await falar(d.logado ? "Não entendi o que você quer fazer. Posso fazer um Pix, pagar uma conta, dizer seu saldo ou abrir uma tela."
+                             : "Sem senha eu te lembro do vencimento da fatura e das contas a vencer. Para saldo, valores, Pix, pagamentos ou abrir o app, eu confirmo seu rosto antes.");
         return fimFluxo();
       }
       // atendente: confere cada informação e pergunta o que faltar (destinatário, chave ou dados bancários, valor)
@@ -754,8 +832,16 @@ export default function (component) {
         }
         return null;
       }
-      let alvo = destinoDe(cmd, d.contatos, d.contas);
-      let valor = alvo && alvo.tipo === "conta" ? alvo.conta.valor : valorDe(cmd);
+      // destinatário e valor: primeiro o que a IA entendeu; sem IA, as regras locais (com nomes parecidos)
+      let alvo = null;
+      if (itIA === "pagar_conta" && ent.conta !== null && ent.conta !== undefined && d.contas[ent.conta]) alvo = { tipo: "conta", conta: d.contas[ent.conta] };
+      else if (itIA === "pix" && ent.contato !== null && ent.contato !== undefined && d.contatos[ent.contato]) alvo = { tipo: "pix", contato: d.contatos[ent.contato] };
+      else if (itIA === "pix" && ent.contato_novo) {
+        const fz = destinoDe(" para " + ent.contato_novo, d.contatos, d.contas);     // a IA disse "novo", mas há um contato parecido
+        alvo = fz || { tipo: "pix", contato: { nome: comoDito(ent.contato_novo, norm(ent.contato_novo)), chave: "", banco: "", novo: true } };
+      }
+      if (!alvo) alvo = destinoDe(cmd, d.contatos, d.contas);
+      let valor = alvo && alvo.tipo === "conta" ? alvo.conta.valor : ((ent && ent.valor) || valorDe(cmd));
       if (!alvo) {
         const r = await perguntar("Para quem é o Pix?", "Nome do contato ou conta", (t) => {
           const a = destinoDe(" para " + t, d.contatos, d.contas);
@@ -893,8 +979,10 @@ def lia_voz(nome: str, contatos: list[dict], contas: list[dict], saldo: float, k
         "fatura": fatura, "limite_disponivel": round(float(limite_disponivel), 2),
     }
     dados["tts"] = st.session_state.get(f"_tts_{key}")
+    dados["nlu"] = st.session_state.get(f"_nlu_{key}")
     res = _voz(key=key, data=dados, on_executar_change=lambda: None, on_abrir_change=lambda: None,
-               on_consulta_change=lambda: None, on_tts_change=lambda: None)
+               on_consulta_change=lambda: None, on_tts_change=lambda: None, on_nlu_change=lambda: None)
     if not (res.executar or res.abrir or res.consulta):
+        _ponte_nlu(res, key, nome, dados["contatos"], dados["contas"], logado)
         _ponte_tts(res, key)
     return res
