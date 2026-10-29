@@ -466,10 +466,30 @@ def executar_voz(op: dict) -> None:
     valor_op = float(op.get("valor") or 0)
     metodo = {"rosto": "rosto confirmado", "senha": "rosto não identificado → senha falada",
               "sessao": "sessão já validada no login"}.get(op.get("metodo"), str(op.get("metodo")))
-    if valor_op <= 0 or valor_op > ss.saldo:
+    if op.get("tipo") in ("aplicar", "resgatar"):
+        item = next((i for i in ss.investimentos if i["produto"] == op.get("produto")), None)
+        if not item or valor_op <= 0:
+            st.toast("Investimento não encontrado — operação não realizada.")
+            return
+        if op["tipo"] == "aplicar":
+            if valor_op > ss.saldo:
+                st.toast("Saldo insuficiente — operação não realizada.")
+                return
+            item["valor"] += valor_op
+            lancar(f"Aplicação — {item['produto']}", -valor_op, "Investimentos")
+            resumo = f"Apliquei **{D.brl(valor_op)}** em **{item['produto']}**."
+        else:
+            if valor_op > item["valor"]:
+                st.toast("Valor maior que o aplicado — operação não realizada.")
+                return
+            item["valor"] -= valor_op
+            lancar(f"Resgate — {item['produto']}", valor_op, "Investimentos")
+            resumo = f"Resgate de **{D.brl(valor_op)}** de **{item['produto']}** solicitado (liquidez {item['liquidez']})."
+        ss.inv_pendente = None
+    elif valor_op <= 0 or valor_op > ss.saldo:
         st.toast("Saldo insuficiente — operação não realizada.")
         return
-    if op.get("tipo") == "conta":
+    elif op.get("tipo") == "conta":
         c = next((c for c in ss.contas if c["descricao"] == op.get("descricao") and c["status"] != "paga"), None)
         if not c:
             st.toast("Essa conta já estava paga.")

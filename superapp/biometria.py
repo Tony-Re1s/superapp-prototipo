@@ -812,12 +812,13 @@ export default function (component) {
       //    e só na 3ª tentativa (ou se pedirem) ela lista o que sabe fazer
       await falar(`Oi, ${d.nome}! O que você precisa?`);
       let cmd = null, ent = null, pronto = false;
-      let falhas = 0;
+      let falhas = 0, ofereceuAplicar = false;
       for (let turno = 1; turno <= 6 && !pronto; turno++) {   // conversa: até 6 falas; 'não entendi' conta à parte
         const r = await resposta({ placeholder: "Ou digite: pagar o piscineiro 300 reais" });
         cmd = r.v; ui.voce.textContent = (r.origem === "voz" ? "🎤 " : "") + cmd;
         const n = norm(cmd);
         if (NAO.test(n) && !TRANSACAO.test(n)) { await falar("Tudo bem, cancelei."); return fimFluxo(); }
+        if (ofereceuAplicar && SIM.test(n) && !NAO.test(n) && !produtoDe(cmd, d.produtos)) { cmd = "aplicar " + cmd; }
         status("Entendendo…"); ent = await entenderLia(cmd, r.alts, raiz); status("");
         const it = ent && ent.intencao;
         if (it === "cancelar") { await falar("Tudo bem, cancelei."); return fimFluxo(); }
@@ -828,7 +829,7 @@ export default function (component) {
         if (it === "ajuda" || (!it && AJUDA_VOZ.test(n))) { await falar(textoAjuda(d)); continue; }
         // pergunta geral sobre investimentos: informação do produto, sem senha e sem abrir tela
         if (it === "info_investimentos" || (!it && INFO_INVEST.test(n) && !APLICAR.test(n.replace(/investimentos?/g, "")))) {
-          await falar((ent && ent.resposta) || textoInvestimentos(d), ent && ent.resposta ? audio : null); continue;
+          await falar((ent && ent.resposta) || textoInvestimentos(d), ent && ent.resposta ? audio : null); ofereceuAplicar = true; continue;
         }
         if (it === "outro") {
           falhas++;
@@ -855,27 +856,84 @@ export default function (component) {
         return fimFluxo();
       }
 
-      // aplicar ou resgatar: é transação — rosto (ou senha) e a tela de investimentos já preenchida;
-      // a pessoa confere e confirma lá (com o rosto de novo, como toda aplicação)
+      // atendente: confere cada informação e pergunta o que faltar (destinatário, chave ou dados bancários, valor)
+      const cancelou = async () => { status("Operação cancelada", "alerta"); await falar("Tudo bem, cancelei. Não fiz nenhuma operação."); return fimFluxo(); };
+      async function perguntar(fala, placeholder, ler, { tipo = "text", erro = "Não entendi. Pode repetir, por favor?" } = {}) {
+        await falar(fala);
+        for (let t = 1; t <= 2; t++) {
+          const r = await resposta({ placeholder, tipo });
+          ui.voce.textContent = (r.origem === "voz" ? "🎤 " : "") + (tipo === "password" ? "••••" : r.v);
+          if (CANCELAR.test(norm(r.v))) return { cancelado: true };
+          const v = ler(r.v);
+          if (v !== null && v !== undefined && v !== "") return { v, bruto: r.v };
+          if (t === 1) await falar(erro);
+        }
+        return null;
+      }
+      // confirmação final por voz: "ok"/"seguir" (2 tentativas)
+      async function confirmarOk() {
+        for (let tent = 1; tent <= 2; tent++) {
+          const rr = await resposta({ placeholder: "Diga ou digite: ok / seguir / cancelar", botoes: true });
+          ui.voce.textContent = (rr.origem === "voz" ? "🎤 " : "") + rr.v;
+          const r = norm(rr.v);
+          if (NAO.test(r)) return false;
+          if (SIM.test(r)) return true;
+          if (tent === 1) await falar("Não entendi. Diga ok para confirmar ou cancelar para desistir.");
+        }
+        return false;
+      }
+      // aplicar ou resgatar: como o Pix — a Lia completa o que faltar, confirma o rosto (ou a senha),
+      // lê os dados, pede "ok" e executa direto, sem abrir a tela de investimentos
       const itI = ent && ent.intencao;
       const nI = norm(cmd).replace(/investimentos?/g, "");
       const opInv = itI === "aplicar" ? "Aplicar" : itI === "resgatar" ? "Resgatar"
-        : (!itI && RESGATAR.test(nI)) ? "Resgatar" : (!itI && APLICAR.test(nI)) ? "Aplicar" : null;
+        : (!itI && RESGATAR.test(nI)) ? "Resgatar" : (!itI && APLICAR.test(nI)) ? "Aplicar"
+        : (!itI && ofereceuAplicar && produtoDe(cmd, d.produtos)) ? "Aplicar" : null;
       if (opInv) {
-        const prod = (ent && ent.produto !== null && ent.produto !== undefined && d.produtos[ent.produto]) || produtoDe(cmd, d.produtos);
-        const val = (ent && ent.valor) || valorDe(cmd);
-        ui.op.classList.remove("escondido");
-        $(".f-tipo").textContent = opInv; $(".f-para").textContent = prod ? prod.produto : "a escolher";
-        $(".f-chave").textContent = prod ? `rende ${(prod.rent_12m * 100).toFixed(1).replace(".", ",")}% em 12m · liquidez ${prod.liquidez}` : "—";
-        $(".f-valor").textContent = val ? brl(val) : "a informar";
-        if (opInv === "Aplicar" && val && val > d.saldo) { status("Saldo insuficiente", "alerta"); await falar(`Seu saldo não cobre ${valorFalado(val)}.`); return fimFluxo(); }
-        const v = d.logado ? { metodo: "sessao" } : await validar();
-        if (!v) return fimFluxo();
-        const pre = v.metodo === "sessao" ? "" : v.metodo === "senha" ? "Senha confirmada. " : "Rosto confirmado. ";
-        const oque = `${opInv === "Aplicar" ? "a aplicação" : "o resgate"}${val ? " de " + valorFalado(val) : ""}${prod ? (opInv === "Aplicar" ? " no " : " do ") + prod.produto : ""}`;
-        await falar(`${pre}Preparei ${oque}. Confira na tela e confirme.`);
+        const aplicar = opInv === "Aplicar", pos = (p) => (d.posicoes || {})[p.produto] || 0;
+        let prod = (ent && ent.produto !== null && ent.produto !== undefined && d.produtos[ent.produto]) || produtoDe(cmd, d.produtos);
+        let val = (ent && ent.valor) || valorDe(cmd);
+        const pct = (x) => (x * 100).toFixed(1).replace(".", ",") + "%";
+        const mostrar = () => {
+          ui.op.classList.remove("escondido");
+          $(".f-tipo").textContent = aplicar ? "Aplicação" : "Resgate"; $(".f-para").textContent = prod ? prod.produto : "—";
+          $(".f-chave").textContent = prod ? `rende ${pct(prod.rent_12m)} em 12m · liquidez ${prod.liquidez}` : "—";
+          $(".f-valor").textContent = val ? brl(val) : "—";
+        };
+        mostrar();
+        if (!prod) {
+          const lista = (aplicar ? d.produtos : d.produtos.filter((p) => pos(p) > 0)).map((p) => p.produto);
+          const r = await perguntar(`${aplicar ? "Em qual investimento" : "De qual investimento"}? ${lista.length && lista.length <= 4 ? "Você tem " + lista.join(", ") + "." : ""}`,
+            "Ex.: CDB, Tesouro Selic", (t) => produtoDe(t, d.produtos), { erro: "Não achei esse investimento. Diga, por exemplo, CDB ou Tesouro Selic." });
+          if (!r) { await falar("Não consegui entender o investimento. Cancelei."); return fimFluxo(); }
+          if (r.cancelado) return cancelou();
+          prod = r.v; if (!val) val = valorDe(r.bruto); mostrar();
+        }
+        if (!val) {
+          const r = await perguntar(`Qual o valor ${aplicar ? "da aplicação" : "do resgate"}?`, "Valor, ex.: 500",
+            (t) => { const v = valorDe(t, true); return v && v > 0 ? v : null; }, { erro: "Não entendi o valor. Diga, por exemplo, quinhentos reais." });
+          if (!r) { await falar("Não consegui entender o valor. Cancelei."); return fimFluxo(); }
+          if (r.cancelado) return cancelou();
+          val = r.v; mostrar();
+        }
+        if (aplicar && val > d.saldo) { status("Saldo insuficiente", "alerta"); await falar(`Seu saldo não cobre ${valorFalado(val)}. Cancelei.`); return fimFluxo(); }
+        if (!aplicar && val > pos(prod)) {
+          status("Valor maior que o aplicado", "alerta");
+          await falar(pos(prod) ? `Você tem ${valorFalado(pos(prod))} no ${prod.produto}. Cancelei.` : `Você não tem aplicação no ${prod.produto}. Cancelei.`);
+          return fimFluxo();
+        }
+        const valid = await validar();                 // transação: sempre confirma o rosto (ou a senha)
+        if (!valid) return fimFluxo();
+        const pre = valid.metodo === "senha" ? "Senha confirmada. " : "Rosto confirmado. ";
+        const liq = aplicar ? "" : ` O dinheiro cai na conta conforme a liquidez: ${prod.liquidez}.`;
+        await falar(`${pre}${aplicar ? "Aplicação" : "Resgate"} de ${valorFalado(val)} ${aplicar ? "no" : "do"} ${prod.produto}.${liq} Diga ok ou seguir para confirmar.`);
+        if (!(await confirmarOk())) { status("Operação cancelada", "alerta"); await falar("Tudo bem, não fiz nada."); return fimFluxo(); }
+        status(aplicar ? "Aplicação feita ✓" : "Resgate solicitado ✓", "ok");
+        await falar(aplicar ? `Pronto! Apliquei ${valorFalado(val)} no ${prod.produto}.` : `Pronto! Resgate de ${valorFalado(val)} solicitado.`);
         fimFluxo();
-        raiz.__set("abrir", { tela: "Investir", metodo: v.metodo, investir: { op: opInv, produto: prod ? prod.produto : null, valor: val || 0 } });
+        raiz.__set("executar", { tipo: aplicar ? "aplicar" : "resgatar", nome: prod.produto, produto: prod.produto, valor: val,
+                                 metodo: valid.metodo, comando: cmd, motivo_rosto: valid.rosto.motivo });
+        setTimeout(() => { if (!rodando) ui.painel.classList.add("escondido"); }, 8000);
         return;
       }
 
@@ -897,20 +955,6 @@ export default function (component) {
         await falar(d.logado ? "Não entendi o que você quer fazer. Posso fazer um Pix, pagar uma conta, dizer seu saldo ou abrir uma tela."
                              : "Sem senha eu te lembro do vencimento da fatura e das contas a vencer. Para saldo, valores, Pix, pagamentos ou abrir o app, eu confirmo seu rosto antes.");
         return fimFluxo();
-      }
-      // atendente: confere cada informação e pergunta o que faltar (destinatário, chave ou dados bancários, valor)
-      const cancelou = async () => { status("Operação cancelada", "alerta"); await falar("Tudo bem, cancelei. Não fiz nenhuma operação."); return fimFluxo(); };
-      async function perguntar(fala, placeholder, ler, { tipo = "text", erro = "Não entendi. Pode repetir, por favor?" } = {}) {
-        await falar(fala);
-        for (let t = 1; t <= 2; t++) {
-          const r = await resposta({ placeholder, tipo });
-          ui.voce.textContent = (r.origem === "voz" ? "🎤 " : "") + (tipo === "password" ? "••••" : r.v);
-          if (CANCELAR.test(norm(r.v))) return { cancelado: true };
-          const v = ler(r.v);
-          if (v !== null && v !== undefined && v !== "") return { v, bruto: r.v };
-          if (t === 1) await falar(erro);
-        }
-        return null;
       }
       // destinatário e valor: primeiro o que a IA entendeu; sem IA, as regras locais (com nomes parecidos)
       let alvo = null;
@@ -1061,6 +1105,7 @@ def lia_voz(nome: str, contatos: list[dict], contas: list[dict], saldo: float, k
         # catálogo (informação pública do produto) e posição (dado pessoal, só com rosto ou senha)
         "produtos": [{"produto": i["produto"], "tipo": i["tipo"], "rent_12m": i["rent_12m"], "liquidez": i["liquidez"]}
                      for i in (investimentos or [])],
+        "posicoes": {i["produto"]: round(i["valor"], 2) for i in (investimentos or [])},
         "investido": {"total": round(sum(i["valor"] for i in (investimentos or [])), 2),
                       "rend": round(sum(i["valor"] * i["rent_12m"] for i in (investimentos or [])), 2)},
     }

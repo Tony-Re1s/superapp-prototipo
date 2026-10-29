@@ -45,9 +45,10 @@ pedidos não entendidos. A IA só interpreta: rosto/senha e o "ok" continuam obr
 **Investimentos por voz:** pergunta geral ("qual o melhor investimento?") é informação do produto: a Lia
 responde sem senha e sem abrir tela, apresentando as opções por objetivo (reserva, longo prazo, renda variável) com
 rentabilidade e liquidez — sem dizer "o melhor para você", porque recomendação personalizada exige o perfil de
-investidor (suitability, CVM). "Quanto eu tenho investido?" é dado pessoal: rosto ou senha. "Aplicar 500 no CDB" é
-transação: rosto ou senha (fora do app) e a tela de investimentos abre na aba Aplicar já preenchida; a pessoa
-confirma lá, com o rosto.
+investidor (suitability, CVM). "Quanto eu tenho investido?" é dado pessoal: rosto ou senha. "Aplicar 500 no CDB" e
+"resgatar 200 do Tesouro" são transações e funcionam como o Pix: a Lia pergunta o que faltar (produto, valor),
+confere saldo ou valor aplicado, confirma o rosto (ou a senha), lê os dados, pede "ok" e executa direto. Depois de
+apresentar as opções, "sim" ou "no CDB, 500" já seguem para a aplicação.
 
 **Voz mais fluida:** a resposta da IA já volta com o áudio (uma ida ao servidor, não duas); frases fixas são geradas
 em segundo plano ao abrir o app; se a voz neural demorar mais de 3 s, a Lia fala com a voz do aparelho.
