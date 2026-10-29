@@ -375,13 +375,15 @@ FERRAMENTA_VOZ = {
         "properties": {
             "intencao": {"type": "string", "enum": [
                 "saudacao", "ajuda", "consulta_saldo", "consulta_limite", "consulta_fatura", "consulta_vencimento_fatura",
-                "consulta_contas", "abrir_tela", "pix", "pagar_conta", "cancelar", "outro"]},
+                "consulta_contas", "info_investimentos", "consulta_investimentos", "aplicar", "resgatar",
+                "abrir_tela", "pix", "pagar_conta", "cancelar", "outro"]},
             "contato": {"type": ["integer", "null"], "description": "Número do contato da lista, no Pix para alguém salvo"},
             "contato_novo": {"type": ["string", "null"], "description": "Nome dito, se o destinatário NÃO está na lista"},
             "conta": {"type": ["integer", "null"], "description": "Número da conta a pagar da lista"},
+            "produto": {"type": ["integer", "null"], "description": "Número do produto de investimento da lista, em aplicar/resgatar"},
             "valor": {"type": ["number", "null"], "description": "Valor em reais, se foi dito"},
             "tela": {"type": ["string", "null"], "enum": TELAS_VOZ + [None], "description": "Tela a abrir, em abrir_tela"},
-            "resposta": {"type": "string", "description": "Frase curta e natural para a Lia FALAR em saudacao, ajuda ou outro (vazia nas demais)"},
+            "resposta": {"type": "string", "description": "Frase curta e natural para a Lia FALAR em saudacao, ajuda, info_investimentos ou outro (vazia nas demais)"},
             "confianca": {"type": "number", "description": "0 a 1: quão certa é a interpretação"},
         },
         "required": ["intencao", "resposta", "confianca"],
@@ -399,12 +401,19 @@ Regras:
 - Saudação ("oi", "bom dia", "tudo bem"): intencao saudacao, resposta curta e calorosa, SEM listar funções.
 - Pedido de ajuda ("o que você faz?"): intencao ajuda, resposta listando em uma frase: Pix, pagar contas, saldo, limite,
   fatura, contas a vencer e abrir telas do app.
+- Pergunta sobre investimentos em geral ("qual o melhor investimento?", "onde rende mais?", "quais opções tenho?"):
+  intencao info_investimentos. Na resposta, apresente 2 ou 3 produtos da lista pelo objetivo — reserva com resgate
+  rápido, prazo longo protegido da inflação, renda variável com mais risco —, citando a rentabilidade de 12 meses e a
+  liquidez, e termine perguntando o objetivo ou se a pessoa quer aplicar. NÃO diga que um produto é "o melhor para você":
+  recomendação personalizada exige o perfil de investidor (suitability, CVM). Não cite valores que o cliente tem.
+- "quanto eu tenho investido?", "quanto rendeu minha carteira?": consulta_investimentos (dado pessoal, sem resposta).
+- "aplicar/investir 500 no CDB", "quero aplicar": aplicar (produto e valor se ditos). "resgatar 200 do Tesouro": resgatar.
 - Fora do banco ou sem sentido: intencao outro, resposta pedindo para repetir ou dizendo com gentileza que não faz isso.
 - Responda em português do Brasil, frases curtas, pois a resposta é falada em voz alta."""
 
 
 def interpretar_voz(texto: str, alternativas: list[str], nome: str, contatos: list[dict], contas: list[dict],
-                    logado: bool = False) -> dict | None:
+                    logado: bool = False, produtos: list[dict] | None = None) -> dict | None:
     """Entende o comando de voz com a API. None = sem API ou erro (o navegador usa as regras locais)."""
     if not api_disponivel():
         return None
@@ -418,11 +427,14 @@ def interpretar_voz(texto: str, alternativas: list[str], nome: str, contatos: li
                "Contatos Pix salvos:\n" + "\n".join(f"{i}. {c['nome']} ({c.get('banco', '')})" for i, c in enumerate(contatos)) +
                "\nContas a pagar:\n" + "\n".join(f"{i}. {c['descricao']} — R$ {c['valor']:.2f}, vence {c['vencimento']}"
                                                    for i, c in enumerate(contas)) +
+               "\nProdutos de investimento do banco:\n" + "\n".join(
+                   f"{i}. {p['produto']} — {p['tipo']}, rentabilidade 12 meses {p['rent_12m']:.1%}, liquidez {p['liquidez']}"
+                   for i, p in enumerate(produtos or [])) +
                "\nTelas do app: " + ", ".join(TELAS_VOZ) +
                f"\n\nO cliente falou: \"{texto}\"" +
                ("\nOutras leituras possíveis do mesmo áudio: " + " | ".join(f'"{a}"' for a in alts) if alts else ""))
         resp = cliente.messages.create(
-            model=modelo, max_tokens=300,
+            model=modelo, max_tokens=400,
             system=[{"type": "text", "text": SISTEMA_VOZ, "cache_control": {"type": "ephemeral"}}],
             tools=[FERRAMENTA_VOZ], tool_choice={"type": "tool", "name": "entender_comando"},
             messages=[{"role": "user", "content": ctx}],
@@ -439,6 +451,7 @@ def interpretar_voz(texto: str, alternativas: list[str], nome: str, contatos: li
 
         d["contato"] = _idx(d.get("contato"), len(contatos))
         d["conta"] = _idx(d.get("conta"), len(contas))
+        d["produto"] = _idx(d.get("produto"), len(produtos or []))
         if d.get("valor") is not None:
             try:
                 d["valor"] = abs(float(d["valor"]))

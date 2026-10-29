@@ -50,7 +50,7 @@ def voz_neural(texto: str) -> str | None:
         import edge_tts
 
         async def _gerar() -> bytes:
-            com = edge_tts.Communicate(texto, VOZ_NEURAL, rate="-4%", pitch="+0Hz")
+            com = edge_tts.Communicate(texto, VOZ_NEURAL, rate="+6%", pitch="+0Hz")
             out = bytearray()
             async for ch in com.stream():
                 if ch["type"] == "audio":
@@ -86,16 +86,27 @@ def _ponte_tts(res, chave: str) -> None:
         st.session_state[f"_tts_{chave}"] = {"id": pedido.get("id"), "b64": b64} if b64 else {"id": pedido.get("id"), "erro": True}
         st.rerun()
 
-def _ponte_nlu(res, chave: str, nome: str, contatos: list[dict], contas: list[dict], logado: bool) -> None:
-    """O navegador pediu para entender um comando falado: a IA interpreta e devolve no próximo render."""
+def _ponte_nlu(res, chave: str, nome: str, contatos: list[dict], contas: list[dict], logado: bool,
+               produtos: list[dict]) -> None:
+    """O navegador pediu para entender um comando falado: a IA interpreta e devolve no próximo render.
+    Se houver frase para a Lia falar, a voz já vai junto (uma ida ao servidor em vez de duas)."""
     pedido = getattr(res, "nlu", None)
     if pedido and pedido.get("texto"):
         from . import ia
         r = ia.interpretar_voz(str(pedido["texto"])[:300], [str(a)[:300] for a in (pedido.get("alternativas") or [])],
-                               nome, contatos, contas, logado)
+                               nome, contatos, contas, logado, produtos)
+        if r and (r.get("resposta") or "").strip():
+            r["audio"] = voz_neural(r["resposta"].strip()[:600])
         st.session_state[f"_nlu_{chave}"] = ({"id": pedido.get("id"), "resultado": r} if r
                                              else {"id": pedido.get("id"), "erro": True})
         st.rerun()
+
+
+def _aquecer_vozes(frases: list[str]) -> None:
+    """Gera em segundo plano a voz das frases fixas (saudação, confirmações), para a Lia responder sem espera."""
+    faltam = [f for f in frases if f not in _TTS_CACHE]
+    if faltam and not os.environ.get("SA_TTS_FAKE"):
+        threading.Thread(target=lambda: [voz_neural(f) for f in faltam], daemon=True).start()
 
 
 SENHA_ACESSO = "1234"  # senha fictícia do protótipo (mostrada na tela)
@@ -352,7 +363,7 @@ async function falarLia(texto, raiz) {
   if (raiz && raiz.__set && !G.ttsOff) {
     raiz.__ttsPend = raiz.__ttsPend || {};
     const id = "t" + Date.now() + Math.floor(Math.random() * 1000);
-    const r = await new Promise((res) => { raiz.__ttsPend[id] = res; setTimeout(() => res(null), 6000); raiz.__set("tts", { id, texto }); });
+    const r = await new Promise((res) => { raiz.__ttsPend[id] = res; setTimeout(() => res(null), 3000); raiz.__set("tts", { id, texto }); });
     if (r && r.b64) { try { await tocarB64(r.b64); return true; } catch (e) {} }
     if (r && r.erro) G.ttsOff = true;        // servidor sem voz neural: usa a do aparelho daqui em diante
   }
@@ -573,6 +584,36 @@ const IGNORA_NOME = /^(para|pra|pro|reais|real|conto|contos|valor|pix|manda|mand
 const SAUDACAO = /^\s*(oi|ola|ola lia|oi lia|bom dia|boa tarde|boa noite|e ai|eai|tudo bem|tudo bom|opa)[\s!?.,]*(lia)?[\s!?.,]*$/;
 const AJUDA_VOZ = /\b(o que (voce|vc|tu) (faz|sabe|consegue|pode)|me ajuda|ajuda|como funciona|quais (sao )?(as )?(opcoes|funcoes))\b/;
 const TELA_POR_NOME = { "Extrato": "o extrato", "Pix": "o Pix", "Cartão": "o cartão", "Pagar": "os pagamentos", "Investir": "os investimentos", "Gastos": "os gastos", "Início": "a sua conta" };
+const INFO_INVEST = /\b(melhor(es)? (investimento|aplicacao|opcao)|onde (investir|aplicar|rende)|qual investimento|quais investimentos|opcoes de investimento|rende mais|rendendo mais|que rende|investimentos? (bom|bons)|vale a pena investir)\b/;
+const MEUS_INVEST = /\b(quanto (eu )?tenho investido|meus investimentos|minha carteira|quanto (rendeu|rendem|ta rendendo|esta rendendo)|total investido)\b/;
+const APLICAR = /\b(aplic\w*|invist\w*|investir|invest[ae]\b)\b/;
+const RESGATAR = /\b(resgat\w*|sacar do|tirar do)\b/;
+function produtoDe(t, produtos) {
+  const n = norm(t); let melhor = null, nota = 0;
+  for (const p of produtos) {
+    const pn = norm(p.produto);
+    const chaves = [pn.split(" ")[0], ...pn.split(/[^a-z0-9+]+/).filter((w) => w.length >= 3 && !/^(superapp|cdi|reserva)$/.test(w))];
+    for (const w of chaves) if (n.includes(w)) { const sc = w.length; if (sc > nota) { nota = sc; melhor = p; } }
+    if (/\bipca\b/.test(n) && /ipca/.test(pn)) return p;
+    if (/\bselic\b/.test(n) && /selic/.test(pn)) return p;
+    if (/\b(bolsa|acoes|etf|dolar)\b/.test(n) && /etf|ivvb/.test(pn)) return p;
+  }
+  return melhor;
+}
+// sem IA: a Lia apresenta as opções pelo objetivo (informação do produto, sem dados do cliente)
+function textoInvestimentos(d) {
+  const ps = d.produtos || [];
+  if (!ps.length) return "No momento não tenho produtos de investimento para te mostrar.";
+  const pct = (x) => (x * 100).toFixed(1).replace(".", ",") + "%";
+  const reserva = ps.filter((p) => /diaria/i.test(norm(p.liquidez))).sort((a, b) => b.rent_12m - a.rent_12m)[0];
+  const longo = ps.find((p) => /ipca/i.test(p.produto)) || ps.find((p) => /tesouro/i.test(p.produto));
+  const variavel = ps.find((p) => /variavel/i.test(norm(p.tipo)));
+  const partes = [];
+  if (reserva) partes.push(`para reserva, com resgate no mesmo dia, o ${reserva.produto} rendeu ${pct(reserva.rent_12m)} em 12 meses`);
+  if (longo && longo !== reserva) partes.push(`para longo prazo, o ${longo.produto} rendeu ${pct(longo.rent_12m)}`);
+  if (variavel) partes.push(`e, com mais risco, o ${variavel.produto} rendeu ${pct(variavel.rent_12m)}`);
+  return "Depende do seu objetivo: " + partes.join("; ") + ". Quer aplicar em algum deles?";
+}
 function textoAjuda(d) {
   return `Eu faço Pix, pago contas, digo seu saldo, limite e fatura, lembro das contas a vencer e abro as telas do app. ${d.logado ? "" : "Para valores e transações, eu confirmo seu rosto ou a senha. "}O que você precisa?`;
 }
@@ -636,8 +677,9 @@ export default function (component) {
   };
   let rodando = false, ultimasAlts = [];
 
-  function falar(texto) {
+  async function falar(texto, audio) {
     ui.fala.textContent = texto;
+    if (audio) { try { await tocarB64(audio); return true; } catch (e) {} }
     return falarLia(texto, raiz);
   }
   function ouvir(ms = 7000) {
@@ -720,6 +762,12 @@ export default function (component) {
     const it = ent && ent.intencao;
     if (!it && (TRANSACAO.test(n) || ABRIR_FORTE.test(n))) return null;
     const querValor = it === "consulta_contas" ? /\b(quanto|valor|valores|total|quais|qual)\b/.test(n) : /\b(quanto|valor|valores|total|quais|qual)\b/.test(n);
+    if (it === "consulta_investimentos" || (!it && MEUS_INVEST.test(n))) {
+      const iv = d.investido || {};
+      if (!iv.total) return { protegido: false, texto: () => "Você ainda não tem investimentos." };
+      return { protegido: true, assunto: "Seus investimentos",
+               texto: () => `Você tem ${valorFalado(D().investido.total)} investidos, que renderam cerca de ${valorFalado(D().investido.rend)} nos últimos 12 meses.` };
+    }
     if (it === "consulta_saldo" || (!it && /\b(saldo|quanto (eu )?tenho|quanto tem)\b/.test(n)))
       return { protegido: true, assunto: "Saldo", texto: () => `Seu saldo disponível é de ${valorFalado(D().saldo)}.` };
     if (it === "consulta_limite" || (!it && /\blimite\b/.test(n)))
@@ -764,7 +812,8 @@ export default function (component) {
       //    e só na 3ª tentativa (ou se pedirem) ela lista o que sabe fazer
       await falar(`Oi, ${d.nome}! O que você precisa?`);
       let cmd = null, ent = null, pronto = false;
-      for (let tent = 1; tent <= 3 && !pronto; tent++) {
+      let falhas = 0;
+      for (let turno = 1; turno <= 6 && !pronto; turno++) {   // conversa: até 6 falas; 'não entendi' conta à parte
         const r = await resposta({ placeholder: "Ou digite: pagar o piscineiro 300 reais" });
         cmd = r.v; ui.voce.textContent = (r.origem === "voz" ? "🎤 " : "") + cmd;
         const n = norm(cmd);
@@ -772,12 +821,19 @@ export default function (component) {
         status("Entendendo…"); ent = await entenderLia(cmd, r.alts, raiz); status("");
         const it = ent && ent.intencao;
         if (it === "cancelar") { await falar("Tudo bem, cancelei."); return fimFluxo(); }
+        const audio = ent && ent.audio;
         if (it === "saudacao" || (!it && SAUDACAO.test(n))) {
-          await falar((ent && ent.resposta) || `Oi, ${d.nome}! Tudo bem? Em que posso te ajudar?`); continue;
+          await falar((ent && ent.resposta) || `Oi, ${d.nome}! Tudo bem? Em que posso te ajudar?`, audio); continue;
         }
         if (it === "ajuda" || (!it && AJUDA_VOZ.test(n))) { await falar(textoAjuda(d)); continue; }
+        // pergunta geral sobre investimentos: informação do produto, sem senha e sem abrir tela
+        if (it === "info_investimentos" || (!it && INFO_INVEST.test(n) && !APLICAR.test(n.replace(/investimentos?/g, "")))) {
+          await falar((ent && ent.resposta) || textoInvestimentos(d), ent && ent.resposta ? audio : null); continue;
+        }
         if (it === "outro") {
-          await falar(tent < 3 ? ((ent && ent.resposta) || "Não entendi direito. Pode repetir?") : textoAjuda(d)); continue;
+          falhas++;
+          if (falhas >= 3) break;
+          await falar(falhas < 2 ? ((ent && ent.resposta) || "Não entendi direito. Pode repetir?") : textoAjuda(d), falhas < 2 ? audio : null); continue;
         }
         pronto = true;
       }
@@ -797,6 +853,30 @@ export default function (component) {
         await falar(info.texto());
         raiz.__set("consulta", { comando: cmd, protegido: !!info.protegido });
         return fimFluxo();
+      }
+
+      // aplicar ou resgatar: é transação — rosto (ou senha) e a tela de investimentos já preenchida;
+      // a pessoa confere e confirma lá (com o rosto de novo, como toda aplicação)
+      const itI = ent && ent.intencao;
+      const nI = norm(cmd).replace(/investimentos?/g, "");
+      const opInv = itI === "aplicar" ? "Aplicar" : itI === "resgatar" ? "Resgatar"
+        : (!itI && RESGATAR.test(nI)) ? "Resgatar" : (!itI && APLICAR.test(nI)) ? "Aplicar" : null;
+      if (opInv) {
+        const prod = (ent && ent.produto !== null && ent.produto !== undefined && d.produtos[ent.produto]) || produtoDe(cmd, d.produtos);
+        const val = (ent && ent.valor) || valorDe(cmd);
+        ui.op.classList.remove("escondido");
+        $(".f-tipo").textContent = opInv; $(".f-para").textContent = prod ? prod.produto : "a escolher";
+        $(".f-chave").textContent = prod ? `rende ${(prod.rent_12m * 100).toFixed(1).replace(".", ",")}% em 12m · liquidez ${prod.liquidez}` : "—";
+        $(".f-valor").textContent = val ? brl(val) : "a informar";
+        if (opInv === "Aplicar" && val && val > d.saldo) { status("Saldo insuficiente", "alerta"); await falar(`Seu saldo não cobre ${valorFalado(val)}.`); return fimFluxo(); }
+        const v = d.logado ? { metodo: "sessao" } : await validar();
+        if (!v) return fimFluxo();
+        const pre = v.metodo === "sessao" ? "" : v.metodo === "senha" ? "Senha confirmada. " : "Rosto confirmado. ";
+        const oque = `${opInv === "Aplicar" ? "a aplicação" : "o resgate"}${val ? " de " + valorFalado(val) : ""}${prod ? (opInv === "Aplicar" ? " no " : " do ") + prod.produto : ""}`;
+        await falar(`${pre}Preparei ${oque}. Confira na tela e confirme.`);
+        fimFluxo();
+        raiz.__set("abrir", { tela: "Investir", metodo: v.metodo, investir: { op: opInv, produto: prod ? prod.produto : null, valor: val || 0 } });
+        return;
       }
 
       // "abrir o extrato", "ver meu cartão": valida o rosto e abre a tela
@@ -967,7 +1047,8 @@ def portao(tela: str, rotulo: str = "", tema: str = "claro", prefixo: str = "bio
 
 def lia_voz(nome: str, contatos: list[dict], contas: list[dict], saldo: float, key: str = "lia_voz",
             tema: str = "claro", chamada: str = "", dica: str = "", fatura: dict | None = None,
-            limite_disponivel: float = 0.0, logado: bool = False, layout: str = "cartao"):
+            limite_disponivel: float = 0.0, logado: bool = False, layout: str = "cartao",
+            investimentos: list[dict] | None = None):
     """Botão LIA por voz. Consultas sem senha; transações e abrir telas com rosto (ou senha).
     Devolve o resultado do componente: .executar (operação confirmada), .abrir (tela liberada), .consulta."""
     dados = {
@@ -977,12 +1058,19 @@ def lia_voz(nome: str, contatos: list[dict], contas: list[dict], saldo: float, k
         "contas": [{"descricao": c["descricao"], "valor": c["valor"], "vencimento": c["vencimento"].strftime("%d/%m"),
                     "status": c.get("status", "aberta")} for c in contas],
         "fatura": fatura, "limite_disponivel": round(float(limite_disponivel), 2),
+        # catálogo (informação pública do produto) e posição (dado pessoal, só com rosto ou senha)
+        "produtos": [{"produto": i["produto"], "tipo": i["tipo"], "rent_12m": i["rent_12m"], "liquidez": i["liquidez"]}
+                     for i in (investimentos or [])],
+        "investido": {"total": round(sum(i["valor"] for i in (investimentos or [])), 2),
+                      "rend": round(sum(i["valor"] * i["rent_12m"] for i in (investimentos or [])), 2)},
     }
+    _aquecer_vozes([f"Oi, {nome}! O que você precisa?", "Tudo bem, cancelei.", "Rosto confirmado.",
+                    f"Oi, {nome}! Tudo bem? Em que posso te ajudar?", "Não entendi direito. Pode repetir?"])
     dados["tts"] = st.session_state.get(f"_tts_{key}")
     dados["nlu"] = st.session_state.get(f"_nlu_{key}")
     res = _voz(key=key, data=dados, on_executar_change=lambda: None, on_abrir_change=lambda: None,
                on_consulta_change=lambda: None, on_tts_change=lambda: None, on_nlu_change=lambda: None)
     if not (res.executar or res.abrir or res.consulta):
-        _ponte_nlu(res, key, nome, dados["contatos"], dados["contas"], logado)
+        _ponte_nlu(res, key, nome, dados["contatos"], dados["contas"], logado, dados["produtos"])
         _ponte_tts(res, key)
     return res

@@ -42,6 +42,16 @@ Sem chave ou sem resposta em 12 s, valem as regras locais, que também aceitam n
 conversa ("Oi! Em que posso te ajudar?"); a lista do que a Lia faz só aparece se a pessoa perguntar ou após dois
 pedidos não entendidos. A IA só interpreta: rosto/senha e o "ok" continuam obrigatórios para executar.
 
+**Investimentos por voz:** pergunta geral ("qual o melhor investimento?") é informação do produto: a Lia
+responde sem senha e sem abrir tela, apresentando as opções por objetivo (reserva, longo prazo, renda variável) com
+rentabilidade e liquidez — sem dizer "o melhor para você", porque recomendação personalizada exige o perfil de
+investidor (suitability, CVM). "Quanto eu tenho investido?" é dado pessoal: rosto ou senha. "Aplicar 500 no CDB" é
+transação: rosto ou senha (fora do app) e a tela de investimentos abre na aba Aplicar já preenchida; a pessoa
+confirma lá, com o rosto.
+
+**Voz mais fluida:** a resposta da IA já volta com o áudio (uma ida ao servidor, não duas); frases fixas são geradas
+em segundo plano ao abrir o app; se a voz neural demorar mais de 3 s, a Lia fala com a voz do aparelho.
+
 LGPD: a detecção de rosto roda no navegador (face-api, em `static/faceapi`, servido com
 `server.enableStaticServing`). Nenhuma imagem é gravada ou enviada. No protótipo a checagem é de presença de
 rosto, não de identidade.

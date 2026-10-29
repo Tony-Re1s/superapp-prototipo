@@ -360,12 +360,21 @@ def _lia_voz(key: str, **extra):
     fat = fatura_total()
     return BIO.lia_voz(ss.nome, D.CONTATOS_PIX[ss.persona], pendentes, ss.saldo, key=key,
                        fatura={"valor": fat, "vencimento": p["fatura_vencimento"].strftime("%d/%m")} if fat else None,
-                       limite_disponivel=p["limite_cartao"] - fat, **extra)
+                       limite_disponivel=p["limite_cartao"] - fat, investimentos=ss.investimentos, **extra)
 
 
 # ----------------------------------------------------------------------------- tela de entrada (antes do login)
 ATALHOS = [("Pix", ":material/currency_exchange:", "Pix e transferir"), ("Pagar", ":material/barcode:", "Pagar"),
            ("Cartão", ":material/credit_card:", "Cartão virtual"), ("Extrato", ":material/receipt_long:", "Extrato")]
+
+
+def _preparar_investimento(abrir: dict) -> None:
+    """Lia por voz pediu aplicação/resgate: deixa a operação preenchida (a pessoa confirma com o rosto na tela)."""
+    inv = abrir.get("investir")
+    if inv:
+        st.session_state.inv_pendente = {"op": inv.get("op", "Aplicar"), "produto": inv.get("produto"),
+                                         "valor": float(inv.get("valor") or 0)}
+        evento("Lia voz", "preparar_investimento", {"op": inv.get("op"), "valor": inv.get("valor")})
 
 
 def _entrar(destino: str, metodo: str) -> None:
@@ -429,6 +438,7 @@ def tela_pre_login() -> None:
     if r.consulta:
         evento("Entrada", "lia_consulta", {"comando": r.consulta.get("comando", "")})
     if r.abrir:
+        _preparar_investimento(r.abrir)
         _entrar(r.abrir["tela"], r.abrir["metodo"])
         st.rerun()
     if r.executar:
@@ -632,6 +642,7 @@ def _lia_inicio_conteudo() -> None:
     if r.consulta:
         evento("Início", "lia_consulta", {"comando": r.consulta.get("comando", "")})
     if r.abrir:
+        _preparar_investimento(r.abrir)
         ir_para(r.abrir["tela"])
         ss.bio_liberada = r.abrir["tela"]
         st.rerun()
@@ -1173,7 +1184,8 @@ def tela_investir() -> None:
     estilo.kpi("Patrimônio investido", valor(total), f"{len(ss.investimentos)} produtos na carteira")
     estilo.kpi("Rendimento 12 meses", valor(rend), f"{rend / total:.1%} ao ano · {valor(total * 0.0085)} este mês", "verde")
     estilo.kpi("Disponível para aplicar", valor(ss.saldo), "saldo da conta corrente", "laranja")
-    aba1, aba2, aba3 = st.tabs(["Carteira", "Aplicar / Resgatar", "Simulador"])
+    aba1, aba2, aba3 = st.tabs(["Carteira", "Aplicar / Resgatar", "Simulador"],
+                               default="Aplicar / Resgatar" if ss.get("inv_pendente") else None)
     with aba1:
         for i in ss.investimentos:
             st.markdown(f'<div class="sa-card"><div class="titulo">{i["produto"]} <span class="sa-pill azul">{i["tipo"]}</span></div>'
@@ -1196,7 +1208,9 @@ def tela_investir() -> None:
                     idx = k
                     break
         if pend:
-            estilo.card("✨ Preparado pela Lia", f"{pend.get('op', 'Aplicar')} {D.brl(pend.get('valor', 0))} em {nomes[idx]}. Confira e confirme.", "ia")
+            vp = float(pend.get("valor") or 0)
+            estilo.card("✨ Preparado pela Lia", (f"{pend.get('op', 'Aplicar')} {D.brl(vp)} em {nomes[idx]}. Confira e confirme." if vp
+                        else f"{pend.get('op', 'Aplicar')} em {nomes[idx]}: informe o valor e confirme."), "ia")
         prod = st.selectbox("Produto", nomes, index=idx)
         op = st.radio("Operação", ["Aplicar", "Resgatar"], horizontal=True, index=0 if pend.get("op", "Aplicar") == "Aplicar" else 1)
         v = st.number_input("Valor (R$)", min_value=0.0, step=50.0, value=float(pend.get("valor", 0.0)), format="%.2f", key="inv_valor")
