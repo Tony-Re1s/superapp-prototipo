@@ -33,6 +33,27 @@ PERSONAS = {
         "salario": 5_400.00,
         "tempo_cliente": "9 anos",
     },
+    # kit de toda conta criada em "Criar minha conta" (valores fictícios, iguais para todos)
+    "conta": {
+        "id": "conta",
+        "nome": "Conta de teste",
+        "primeiro_nome": "Cliente",
+        "idade": 30,
+        "descricao": "Conta de teste criada no protótipo. Saldo e dados fictícios.",
+        "agencia": "0001",
+        "conta": "00000-0",
+        "saldo": 15_000.00,
+        "limite_cartao": 6_000.00,
+        "fatura_atual": 1_284.60,
+        "fatura_vencimento": date(2026, 10, 8),
+        "patrimonio_inv": 65_000.00,
+        "pix_padrao_max": 1_000.00,
+        "prefere_humano": False,
+        "atalhos": ["Pix", "Pagar conta", "Cartão", "Assistente"],
+        "chave_pix": "",
+        "salario": 5_400.00,
+        "tempo_cliente": "hoje (conta de teste)",
+    },
     "marisa": {
         "id": "marisa",
         "nome": "Marisa Andrade",
@@ -88,6 +109,11 @@ CATEGORIAS = {
 }
 
 CONTATOS_PIX = {
+    "conta": [
+        {"nome": "Mãe", "chave": "11 97700-5566", "banco": "Caixa"},
+        {"nome": "Dentista", "chave": "22.333.444/0001-55", "banco": "Bradesco"},
+        {"nome": "Piscineiro (Seu Carlos)", "chave": "11 99123-4567", "banco": "Itaú"},
+    ],
     "padrao": [
         {"nome": "Irmã", "chave": "irma@email.com", "banco": "Nubank"},
         {"nome": "Melhor amigo(a)", "chave": "11 98811-2244", "banco": "Superapp"},
@@ -109,7 +135,22 @@ CONTATOS_PIX = {
     ],
 }
 
+CPF_FICTICIO = "000.123.456-00 (fictício)"
+
 CONTAS_A_PAGAR = {
+    # 5 boletos no CPF fictício da conta de teste, para testar pagamentos
+    "conta": [
+        {"descricao": "Enel Energia", "valor": 187.43, "vencimento": date(2026, 10, 4), "recorrente": True, "status": "aberta",
+         "pagador": CPF_FICTICIO},
+        {"descricao": "Vivo Fibra", "valor": 119.90, "vencimento": date(2026, 9, 26), "recorrente": True, "status": "vencida",
+         "pagador": CPF_FICTICIO},
+        {"descricao": "Sabesp", "valor": 96.18, "vencimento": date(2026, 10, 6), "recorrente": True, "status": "aberta",
+         "pagador": CPF_FICTICIO},
+        {"descricao": "Condomínio", "valor": 640.00, "vencimento": date(2026, 10, 10), "recorrente": True, "status": "aberta",
+         "pagador": CPF_FICTICIO},
+        {"descricao": "Mensalidade da faculdade", "valor": 1_150.00, "vencimento": date(2026, 10, 15), "recorrente": True,
+         "status": "aberta", "pagador": CPF_FICTICIO},
+    ],
     "padrao": [
         {"descricao": "Enel Energia", "valor": 218.70, "vencimento": date(2026, 10, 4), "recorrente": True, "status": "aberta"},
         {"descricao": "Vivo Fibra", "valor": 119.90, "vencimento": date(2026, 9, 26), "recorrente": True, "status": "vencida"},
@@ -133,6 +174,12 @@ CONTAS_A_PAGAR = {
 }
 
 INVESTIMENTOS = {
+    "conta": [
+        {"produto": "CDB Superapp 110% CDI", "tipo": "Renda fixa", "valor": 30_000.00, "rent_12m": 0.1125, "liquidez": "Diária"},
+        {"produto": "Tesouro Selic 2029", "tipo": "Tesouro Direto", "valor": 18_000.00, "rent_12m": 0.108, "liquidez": "D+1"},
+        {"produto": "Tesouro IPCA+ 2035", "tipo": "Tesouro Direto", "valor": 12_000.00, "rent_12m": 0.098, "liquidez": "D+1"},
+        {"produto": "ETF IVVB11", "tipo": "Renda variável", "valor": 5_000.00, "rent_12m": 0.184, "liquidez": "D+2"},
+    ],
     "padrao": [
         {"produto": "CDB Superapp 110% CDI", "tipo": "Renda fixa", "valor": 324_818.27, "rent_12m": 0.1125, "liquidez": "Diária"},
         {"produto": "Tesouro Selic 2029", "tipo": "Tesouro Direto", "valor": 209_643.15, "rent_12m": 0.108, "liquidez": "D+1"},

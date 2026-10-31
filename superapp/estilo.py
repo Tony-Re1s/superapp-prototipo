@@ -9,7 +9,7 @@ CINZA = "#F4F5F7"
 TEXTO = "#1F2430"
 VERDE = "#1B8A4A"
 VERMELHO = "#C62828"
-VERSAO = "v2026.10.22-lia-atendente"  # mostrada no rodapé para conferir qual versão está publicada
+VERSAO = "v2026.10.31-contas-de-teste"  # mostrada no rodapé para conferir qual versão está publicada
 
 CSS = f"""
 <style>
@@ -423,9 +423,10 @@ def pill(texto: str, cor: str = "") -> str:
 
 def rodape() -> None:
     st.markdown(
-        '<div class="sa-aviso">Protótipo acadêmico — FIAP Pós-Tech, Tech Challenge Fase 03. '
-        "Banco fictício. Nenhum dado real é coletado além da sua avaliação anônima. "
-        "A biometria facial roda só no aparelho: nenhuma imagem é gravada ou enviada. Senha de acesso do protótipo: 1234.<br><span style=\"opacity:0.7\">" + VERSAO + "</span></div>",
+        '<div class="sa-aviso">Protótipo acadêmico — FIAP Pós-Tech, Tech Challenge Fase 04. '
+        "Banco fictício: saldos e valores são de mentira. Contas de teste guardam só apelido, senha (em hash) e "
+        "movimentações fictícias; a avaliação é anônima. A biometria facial roda só no aparelho: nenhuma imagem é "
+        "gravada ou enviada. Senha de acesso em “Só explorar”: 1234.<br><span style=\"opacity:0.7\">" + VERSAO + "</span></div>",
         unsafe_allow_html=True,
     )
 

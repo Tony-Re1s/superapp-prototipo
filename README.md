@@ -57,6 +57,30 @@ LGPD: a detecção de rosto roda no navegador (face-api, em `static/faceapi`, se
 `server.enableStaticServing`). Nenhuma imagem é gravada ou enviada. No protótipo a checagem é de presença de
 rosto, não de identidade.
 
+## Duas portas: "Criar minha conta" ou "Só explorar"
+
+- **Só explorar:** o app completo com a cliente fictícia (Ana). Nada é gravado; fechou, zerou. Senha de acesso: `1234`.
+- **Criar minha conta:** só um **apelido** (vira a chave Pix, ex.: `@tony`) e uma **senha de 6 números**. Sem CPF,
+  e-mail ou telefone — a tela avisa para não usar dados pessoais nem uma senha usada em outro lugar. Toda conta
+  nova nasce com o mesmo kit fictício: R$ 15 mil de saldo, R$ 65 mil em investimentos (CDB, Tesouro Selic,
+  Tesouro IPCA+, ETF), cartão com fatura de R$ 1.284,60 e 5 boletos em aberto no CPF fictício `000.123.456-00`.
+  - Tudo o que a pessoa faz fica gravado (saldo, extrato/comprovantes, contas pagas, investimentos, cartão).
+  - **Pix entre contas de teste:** no Pix, os contatos com `@` são as outras contas cadastradas. O dinheiro sai de
+    uma e entra na outra (tela do Pix, QR Code/copia e cola gerado pela outra conta e Lia por voz). Quem recebe
+    vê o aviso, o lançamento no extrato e o comprovante.
+  - **Recuperar a senha:** pelo **rosto, neste aparelho** — no cadastro, a pessoa pode registrar o rosto; a
+    assinatura (128 números) fica só no navegador dela (`localStorage`), nunca no servidor — ou pelo **código de
+    recuperação** que aparece uma única vez no cadastro (serve em qualquer aparelho).
+  - Senha e código são guardados como hash PBKDF2. Para o rosto falhar dentro do app, a senha é conferida no
+    navegador, que recebe só um hash com sal da sessão (nunca a senha).
+- **Primeiro acesso:** balões rápidos explicam o que dá para fazer e o que a Lia faz.
+- **Banco:** tabelas `sa_usuarios`, `sa_estado` (conta gravada) e `sa_pix` (Pix entre contas), criadas sozinhas
+  no mesmo Supabase das avaliações. Sem Supabase, usa SQLite local em `dados_local/`.
+- **Painel do grupo (`?admin=1`):** contas criadas, quantas voltaram e Pix entre contas — métricas reais de
+  aquisição e retenção para o relatório.
+- Protótipo: a verificação do rosto roda no navegador e o servidor confia no resultado; num banco real, a
+  biometria seria validada por um serviço certificado.
+
 ## Rodar no seu PC
 
 ```bash
@@ -119,7 +143,8 @@ superapp/estilo.py          identidade visual (laranja/azul) e componentes
 superapp/telas.py           todas as telas
 superapp/ia.py              assistente: API Claude + regras + escalonamento humano
 superapp/biometria.py       rosto no aparelho (menus) e Lia por voz (comando, rosto/senha, confirmar)
-static/faceapi/             detector de rosto (face-api, MIT) servido pelo próprio app
+superapp/contas.py          contas de teste: cadastro, senha (hash), conta gravada e Pix entre contas
+static/faceapi/             detector e reconhecimento de rosto (face-api, MIT) servidos pelo próprio app
 superapp/db.py              Supabase (Session pooler) com fallback em CSV
 schema.sql                  referência das tabelas
 .streamlit/config.toml      tema

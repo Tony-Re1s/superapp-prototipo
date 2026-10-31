@@ -231,6 +231,83 @@ function carregarDetector() {
   return G.det;
 }
 
+// senha da conta de teste: o servidor manda só sha256(sal da sessão + senha); o navegador confere a digitada
+function sha256(ascii) {
+  function r(v, a) { return (v >>> a) | (v << (32 - a)); }
+  const mp = Math.pow, mw = mp(2, 32); let i, j, res = ""; const words = [], abl = ascii.length * 8;
+  let hash = (sha256.h = sha256.h || []); const k = (sha256.k = sha256.k || []); let pl = k.length; const ic = {};
+  for (let c = 2; pl < 64; c++) { if (!ic[c]) { for (i = 0; i < 313; i += c) ic[i] = c; hash[pl] = (mp(c, 0.5) * mw) | 0; k[pl++] = (mp(c, 1 / 3) * mw) | 0; } }
+  ascii += "\x80"; while ((ascii.length % 64) - 56) ascii += "\x00";
+  for (i = 0; i < ascii.length; i++) { j = ascii.charCodeAt(i); if (j >> 8) return ""; words[i >> 2] |= j << (((3 - i) % 4) * 8); }
+  words[words.length] = (abl / mw) | 0; words[words.length] = abl;
+  for (j = 0; j < words.length;) {
+    const w = words.slice(j, (j += 16)), oh = hash; hash = hash.slice(0, 8);
+    for (i = 0; i < 64; i++) {
+      const w15 = w[i - 15], w2 = w[i - 2], a = hash[0], e = hash[4];
+      const t1 = hash[7] + (r(e, 6) ^ r(e, 11) ^ r(e, 25)) + ((e & hash[5]) ^ (~e & hash[6])) + k[i]
+        + (w[i] = i < 16 ? w[i] : (w[i - 16] + (r(w15, 7) ^ r(w15, 18) ^ (w15 >>> 3)) + w[i - 7] + (r(w2, 17) ^ r(w2, 19) ^ (w2 >>> 10))) | 0);
+      const t2 = (r(a, 2) ^ r(a, 13) ^ r(a, 22)) + ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
+      hash = [(t1 + t2) | 0].concat(hash); hash[4] = (hash[4] + t1) | 0;
+    }
+    for (i = 0; i < 8; i++) hash[i] = (hash[i] + oh[i]) | 0;
+  }
+  for (i = 0; i < 8; i++) for (j = 3; j + 1; j--) { const b = (hash[i] >> (j * 8)) & 255; res += (b < 16 ? "0" : "") + b.toString(16); }
+  return res;
+}
+function senhaConfere(t, d) {
+  const dg = digitos(t);
+  return d.senha_hash ? sha256((d.senha_sal || "") + dg) === d.senha_hash : dg === d.senha;
+}
+const dicaSenha = (d) => d.senha ? `protótipo: ${d.senha}` : "a senha de 6 dígitos da sua conta";
+
+// reconhecimento facial (recuperar a senha): pontos do rosto + assinatura de 128 números, só neste aparelho
+function carregarReconhecimento() {
+  if (!G.rec) {
+    G.rec = (async () => {
+      const fa = await carregarDetector();
+      if (!fa) return null;
+      const base = new URL("app/static/faceapi/", document.baseURI).href;
+      await fa.nets.faceLandmark68TinyNet.loadFromUri(base + "model");
+      await fa.nets.faceRecognitionNet.loadFromUri(base + "model");
+      return fa;
+    })().catch((e) => { G.rec = null; G.recErro = String(e); return null; });
+  }
+  return G.rec;
+}
+// liga a câmera, tira até 3 amostras do rosto e devolve a média (ou {erro})
+async function assinaturaRosto(video, ms, aoStatus) {
+  if (window.__saRostoTeste !== undefined) {           // gancho de teste automatizado
+    await espera(400);
+    return window.__saRostoTeste ? { sig: window.__saAssinaturaTeste || Array.from({ length: 128 }, (_, i) => Math.sin(i) / 10) } : { erro: "sem_rosto" };
+  }
+  aoStatus && aoStatus("Preparando o reconhecimento…");
+  const fa = await Promise.race([carregarReconhecimento(), espera(25000).then(() => null)]);
+  if (!fa) return { erro: "modelo" };
+  let stream = null;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 480 }, height: { ideal: 360 } }, audio: false });
+  } catch (e) { return { erro: "camera" }; }
+  video.muted = true; video.setAttribute("playsinline", ""); video.srcObject = stream;
+  try { await video.play(); } catch (e) {}
+  for (let i = 0; i < 30 && video.readyState < 2; i++) await espera(100);
+  const amostras = [], fim = Date.now() + ms;
+  while (Date.now() < fim && amostras.length < 3) {
+    aoStatus && aoStatus(`Olhe para a câmera… ${Math.ceil((fim - Date.now()) / 1000)}s`);
+    try {
+      const r = await fa.detectSingleFace(video, new fa.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
+        .withFaceLandmarks(true).withFaceDescriptor();
+      if (r) amostras.push(Array.from(r.descriptor));
+    } catch (e) {}
+    await espera(200);
+  }
+  stream.getTracks().forEach((t) => t.stop());
+  video.srcObject = null;
+  if (!amostras.length) return { erro: "sem_rosto" };
+  const sig = amostras[0].map((_, i) => amostras.reduce((s, a) => s + a[i], 0) / amostras.length);
+  return { sig };
+}
+const distanciaRosto = (a, b) => Math.sqrt(a.reduce((s, x, i) => s + (x - b[i]) ** 2, 0));
+
 // liga a câmera frontal e procura um rosto por `ms`; nada é gravado nem enviado
 async function verificarRosto(video, ms, aoContar) {
   if (window.__saRostoTeste !== undefined) {           // gancho de teste automatizado
@@ -392,7 +469,7 @@ HTML_PORTAO = """
   <div class="titulo">Olhe para a câmera</div>
   <div class="sub">Confirmando que é você para <span class="verbo">abrir</span> <b class="tela"></b>…</div>
   <div class="pedido escondido">
-    <div class="senha"><input type="password" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off">
+    <div class="senha"><input type="password" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="off">
       <button class="entrar">Entrar</button></div>
     <button class="sec falar-senha" style="margin-top:8px">🎤 Falar a senha</button>
     <div class="ouvindo sub"></div>
@@ -433,7 +510,7 @@ export default function (component) {
       titulo.textContent = "Não reconhecemos seu rosto";
       sub.textContent = r.motivo === "camera" ? "Câmera indisponível ou sem permissão. Diga ou digite sua senha de acesso."
                                               : "Diga ou digite sua senha de acesso para continuar.";
-      sub.innerHTML += ` <span style="color:#7A8391">(protótipo: ${data.senha})</span>`;
+      sub.innerHTML += ` <span style="color:#7A8391">(${dicaSenha(data)})</span>`;
       pedido.classList.remove("escondido"); campo.value = ""; erro.textContent = "";
       // sem rosto (dirigindo, celular na mochila…): a Lia fala e ouve a senha; o campo continua valendo
       await falarLia("Não consegui identificar seu rosto. Diga a sua senha de acesso.", raiz);
@@ -442,7 +519,7 @@ export default function (component) {
   }
   let tentativas = 0;
   function conferir(valor, origem) {
-    if (digitos(valor) === data.senha) {
+    if (senhaConfere(valor, data)) {
       setTriggerValue("liberado", { tela: data.tela, metodo: origem === "voz" ? "senha_voz" : "senha" });
       return true;
     }
@@ -747,10 +824,10 @@ export default function (component) {
     status("Rosto não identificado · validação por senha", "alerta");
     await falar("Não consegui identificar seu rosto. Se você estiver dirigindo ou com o celular guardado, tudo bem: diga a sua senha de acesso.");
     for (let tent = 1; tent <= 2; tent++) {
-      const r = await resposta({ placeholder: `Senha (protótipo: ${d.senha})`, tipo: "password" });
+      const r = await resposta({ placeholder: `Senha (${dicaSenha(d)})`, tipo: "password" });
       ui.voce.textContent = r.origem === "voz" ? "🎤 ••••" : "••••";
       if (NAO.test(norm(r.v))) { await falar("Tudo bem, cancelei."); return null; }
-      if (digitos(r.v) === d.senha) { status("Senha confirmada", "ok"); return { metodo: "senha", rosto }; }
+      if (senhaConfere(r.v, d)) { status("Senha confirmada", "ok"); return { metodo: "senha", rosto }; }
       if (tent === 1) await falar("Senha incorreta. Diga de novo, por favor.");
     }
     status("Senha incorreta", "alerta");
@@ -1075,7 +1152,79 @@ export default function (component) {
 }
 """
 
+HTML_ROSTO = """
+<div class="sa-bio rosto-ap">
+  <div class="cam escondido"><video playsinline muted></video><div class="anel"></div><div class="icone escondido"></div></div>
+  <div class="titulo"></div>
+  <div class="sub"></div>
+  <button class="ir" style="margin-top:12px"></button>
+  <div class="erro"></div>
+  <div class="lgpd">🔒 A assinatura do seu rosto fica só neste aparelho, no navegador. Nada é enviado ao servidor
+    nem gravado no banco (LGPD). Ela serve apenas para você recuperar a senha por aqui.</div>
+</div>
+"""
+
+JS_ROSTO = JS_COMUM + r"""
+export default function (component) {
+  const { parentElement: raiz, data, setTriggerValue } = component;
+  const $ = (s) => raiz.querySelector(s);
+  if (raiz.__iniciado) return;
+  raiz.__iniciado = true;
+  if (data.tema === "escuro") $(".sa-bio").classList.add("escuro");
+  const chave = "sa_rosto:" + (data.usuario || "");
+  const cadastrar = data.modo === "cadastrar";
+  const cam = $(".cam"), icone = $(".icone"), titulo = $(".titulo"), sub = $(".sub"), ir = $(".ir"), erro = $(".erro");
+  let salvo = null;
+  try { salvo = JSON.parse(localStorage.getItem(chave) || "null"); } catch (e) {}
+  titulo.textContent = cadastrar ? "Cadastrar seu rosto neste aparelho" : "Recuperar com o seu rosto";
+  sub.textContent = cadastrar ? "Opcional. Se esquecer a senha, você recupera olhando para a câmera, neste mesmo aparelho."
+    : (salvo ? "Olhe para a câmera: se for você, liberamos uma senha nova." : "Este aparelho não tem o seu rosto cadastrado. Use o código de recuperação.");
+  ir.textContent = cadastrar ? "📷 Cadastrar meu rosto" : "📷 Verificar meu rosto";
+  if (!cadastrar && !salvo) { ir.classList.add("escondido"); setTriggerValue("resultado", { ok: false, motivo: "sem_cadastro" }); return; }
+  const MSG = { camera: "Câmera indisponível ou sem permissão.", sem_rosto: "Não encontrei um rosto. Tente com mais luz, de frente.",
+                modelo: "Não consegui carregar o reconhecimento facial neste aparelho." };
+  ir.onclick = async () => {
+    ir.disabled = true; erro.textContent = ""; cam.classList.remove("escondido"); cam.className = "cam"; icone.classList.add("escondido");
+    carregarReconhecimento();
+    const r = await assinaturaRosto($("video"), (data.segundos || 6) * 1000, (t) => { sub.textContent = t; });
+    ir.disabled = false;
+    if (r.erro) { cam.className = "cam falhou"; erro.textContent = MSG[r.erro] || r.erro; sub.textContent = ""; return; }
+    if (cadastrar) {
+      try { localStorage.setItem(chave, JSON.stringify(r.sig.map((x) => Math.round(x * 10000) / 10000))); }
+      catch (e) { erro.textContent = "O navegador não deixou guardar a assinatura."; return; }
+      cam.className = "cam ok"; icone.textContent = "✅"; icone.classList.remove("escondido");
+      titulo.textContent = "Rosto cadastrado neste aparelho"; sub.textContent = ""; ir.classList.add("escondido");
+      setTriggerValue("resultado", { ok: true, modo: "cadastrar" });
+      return;
+    }
+    const dist = distanciaRosto(r.sig, salvo);
+    const ok = window.__saRostoTeste !== undefined ? !!window.__saRostoTeste : dist < 0.5;
+    cam.className = ok ? "cam ok" : "cam falhou"; icone.textContent = ok ? "✅" : "✖"; icone.classList.remove("escondido");
+    titulo.textContent = ok ? "Rosto reconhecido" : "Rosto não reconhecido";
+    sub.textContent = ok ? "" : "Tente de novo, ou use o código de recuperação.";
+    if (ok) ir.classList.add("escondido");
+    setTriggerValue("resultado", { ok, modo: "verificar", distancia: Math.round(dist * 1000) / 1000 });
+  };
+}
+"""
+
 _portao = st.components.v2.component("sa_portao_biometria", html=HTML_PORTAO, css=CSS, js=JS_PORTAO)
+_rosto_ap = st.components.v2.component("sa_rosto_aparelho", html=HTML_ROSTO, css=CSS, js=JS_ROSTO)
+
+
+def rosto_aparelho(modo: str, usuario: str, key: str, tema: str = "escuro") -> dict | None:
+    """Cadastra ou verifica o rosto só neste aparelho (para recuperar a senha). Devolve o resultado quando houver."""
+    res = _rosto_ap(key=key, data={"modo": modo, "usuario": usuario, "segundos": 6, "tema": tema},
+                    on_resultado_change=lambda: None)
+    return getattr(res, "resultado", None)
+
+
+def _dados_senha() -> dict:
+    """Senha para o rosto falhar: a fictícia (explorar) ou a da conta, mandada só como hash com sal da sessão."""
+    s = st.session_state.get("_senha_sessao")
+    if s:
+        return {"senha": "", "senha_sal": s["sal"], "senha_hash": s["hash"]}
+    return {"senha": SENHA_ACESSO}
 _voz = st.components.v2.component("sa_lia_voz", html=HTML_VOZ, css=CSS, js=JS_VOZ)
 
 
@@ -1083,7 +1232,7 @@ def portao(tela: str, rotulo: str = "", tema: str = "claro", prefixo: str = "bio
     """Mostra a verificação de rosto. Devolve {'tela', 'metodo'} quando liberar."""
     chave = f"{prefixo}_{tela}"
     res = _portao(key=chave, data={"tela": tela, "rotulo": rotulo or tela, "tema": tema, "verbo": verbo,
-                                   "senha": SENHA_ACESSO, "segundos": SEGUNDOS_ROSTO,
+                                   **_dados_senha(), "segundos": SEGUNDOS_ROSTO,
                                    "tts": st.session_state.get(f"_tts_{chave}")},
                   on_liberado_change=lambda: None, on_tts_change=lambda: None)
     if not res.liberado:          # a liberação vale mais que um pedido de fala no mesmo instante
@@ -1099,7 +1248,7 @@ def lia_voz(nome: str, contatos: list[dict], contas: list[dict], saldo: float, k
     Devolve o resultado do componente: .executar (operação confirmada), .abrir (tela liberada), .consulta."""
     dados = {
         "tema": tema, "chamada": chamada, "dica": dica, "logado": logado, "layout": layout,
-        "nome": nome, "senha": SENHA_ACESSO, "segundos": SEGUNDOS_ROSTO, "saldo": round(float(saldo), 2),
+        "nome": nome, **_dados_senha(), "segundos": SEGUNDOS_ROSTO, "saldo": round(float(saldo), 2),
         "contatos": [{"nome": c["nome"], "chave": c["chave"], "banco": c.get("banco", "")} for c in contatos],
         "contas": [{"descricao": c["descricao"], "valor": c["valor"], "vencimento": c["vencimento"].strftime("%d/%m"),
                     "status": c.get("status", "aberta")} for c in contas],

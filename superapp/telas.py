@@ -12,7 +12,7 @@ import streamlit as st
 
 from . import dados as D
 from . import biometria as BIO
-from . import db, estilo, ia
+from . import contas, db, estilo, ia
 
 TELAS = ["Início", "Pix", "Cartão", "Pagar", "Extrato", "Investir", "Gastos", "Avisos", "Assistente", "Segurança", "Avalie"]
 ICONES = {"Início": "🏠", "Pix": "⚡", "Cartão": "💳", "Pagar": "🧾", "Extrato": "📄", "Investir": "📈",
@@ -80,7 +80,10 @@ def persona() -> dict:
     nome = st.session_state.get("nome") or p["primeiro_nome"]
     p["primeiro_nome"] = nome
     p["nome"] = nome
-    p["chave_pix"] = f"{_norm_txt(nome)}@email.com"
+    p["chave_pix"] = (f"@{st.session_state.usuario}" if st.session_state.get("modo") == "conta"
+                      else f"{_norm_txt(nome)}@email.com")
+    if st.session_state.get("modo") == "conta":
+        p["nome"] = f"@{st.session_state.usuario}"
     return p
 
 
@@ -131,7 +134,10 @@ def ir_para(tela: str) -> None:
 
 
 def evento(tela: str, acao: str, detalhe: dict | None = None) -> None:
-    db.registrar_evento(st.session_state.sessao, st.session_state.persona, tela, acao, detalhe)
+    ss = st.session_state
+    if "sessao" not in ss:  # telas de boas-vindas: ainda sem conta nem cliente fictício
+        ss.sessao = uuid.uuid4().hex[:12]
+    db.registrar_evento(ss.sessao, ss.get("persona", "-"), tela, acao, detalhe)
 
 
 def gastos_por_categoria(dias: int = 30) -> dict[str, float]:
@@ -147,7 +153,7 @@ def contexto_ia() -> dict:
         "persona": persona(),
         "saldo": st.session_state.saldo,
         "contas": st.session_state.contas,
-        "contatos": D.CONTATOS_PIX[st.session_state.persona],
+        "contatos": contatos_pix(),
         "gastos_categoria": gastos_por_categoria(),
         "cartao_bloqueado": st.session_state.cartao_bloqueado,
         "assistente": ASSISTENTE,
@@ -208,13 +214,20 @@ def valor(v: float) -> str:
 def confirmar_senha(chave: str, texto: str) -> bool:
     """Confirmação reforçada — senha fictícia de 4 dígitos (sem biometria, por LGPD)."""
     st.markdown(f'<div class="sa-card alerta"><div class="titulo">🔐 Confirmação de segurança</div>'
-                f'<div class="sub">{texto}<br>Digite sua senha de 4 dígitos (protótipo: qualquer 4 números).</div></div>',
+                f'<div class="sub">{texto}<br>' + ("Digite a senha de 6 dígitos da sua conta." if st.session_state.get("modo") == "conta"
+                else "Digite sua senha de 4 dígitos (protótipo: qualquer 4 números).") + '</div></div>',
                 unsafe_allow_html=True)
     with st.form(f"form_senha_{chave}", clear_on_submit=True):
-        senha = st.text_input("Senha", type="password", max_chars=4, label_visibility="collapsed",
-                              placeholder="••••")
+        conta = st.session_state.get("modo") == "conta"
+        senha = st.text_input("Senha", type="password", max_chars=6 if conta else 4, label_visibility="collapsed",
+                              placeholder="••••••" if conta else "••••")
         ok = st.form_submit_button("Confirmar", type="primary", width="stretch")
     if ok:
+        if st.session_state.get("modo") == "conta":
+            if contas.autenticar(st.session_state.usuario, senha):
+                return True
+            st.error("Senha incorreta.")
+            return False
         if senha.isdigit() and len(senha) == 4:
             return True
         st.error("A senha precisa ter 4 dígitos numéricos.")
@@ -358,7 +371,7 @@ def _lia_voz(key: str, **extra):
     p = persona()
     pendentes = [c for c in ss.contas if c["status"] in ("aberta", "vencida")]
     fat = fatura_total()
-    return BIO.lia_voz(ss.nome, D.CONTATOS_PIX[ss.persona], pendentes, ss.saldo, key=key,
+    return BIO.lia_voz(ss.nome, contatos_pix(), pendentes, ss.saldo, key=key,
                        fatura={"valor": fat, "vencimento": p["fatura_vencimento"].strftime("%d/%m")} if fat else None,
                        limite_disponivel=p["limite_cartao"] - fat, investimentos=ss.investimentos, **extra)
 
@@ -386,6 +399,381 @@ def _entrar(destino: str, metodo: str) -> None:
     if destino == "Cartão":
         ss.cartao_aba_virtual = True
     evento("Entrada", "atalho" if destino != "Início" else "acessar", {"destino": destino, "metodo": metodo})
+
+
+# ----------------------------------------------------------------------------- contas de teste (Criar minha conta)
+# O que fica gravado de uma sessão para outra: saldo, extrato (comprovantes), contas, cartão, investimentos etc.
+CHAVES_CONTA = ["persona", "nome", "mostrar_saldo", "produtos", "saldo", "cartao_bloqueado", "cartao_virtual", "contas",
+                "extrato", "fatura", "fatura_paga", "notificacoes", "prefs_notif", "chat", "limite_pix_noturno",
+                "modo_viagem", "investimentos", "credito", "agendamentos", "prefere_humano", "contato_confianca",
+                "cartao_virtual_fixo", "avaliado", "pix_confirmados", "compras_pendentes"]
+
+
+def _nome_do_apelido(u: str) -> str:
+    base = re.split(r"[._0-9]", u)[0]
+    return (base or u).capitalize()
+
+
+def _senha_sessao(senha: str) -> dict:
+    """Para o rosto falhar, a senha é conferida no navegador: ele recebe só sha256(sal da sessão + senha)."""
+    sal = uuid.uuid4().hex[:16]
+    return {"sal": sal, "hash": hashlib.sha256((sal + senha).encode()).hexdigest()}
+
+
+def entrar_conta(u: dict, senha: str, nova: bool = False) -> None:
+    """Abre a conta de teste: carrega o que estava gravado (ou o kit de conta nova) e entra no app."""
+    for k in list(st.session_state.keys()):
+        del st.session_state[k]
+    ss = st.session_state
+    iniciar_estado("conta", nome=_nome_do_apelido(u["usuario"]))
+    gravado = None
+    try:
+        gravado = contas.carregar_estado(u["id"])
+    except Exception as e:  # noqa: BLE001
+        ss._erro_conta = str(e)
+    for k, v in (gravado or {}).items():
+        if k in CHAVES_CONTA:
+            ss[k] = v
+    ss.modo = "conta"
+    ss.conta_id = u["id"]
+    ss.usuario = u["usuario"]
+    ss.nome = _nome_do_apelido(u["usuario"])
+    ss.logado = True
+    ss.tela = "Início"
+    ss._senha_sessao = _senha_sessao(senha)
+    ss._tutorial = not u.get("tutorial_visto")
+    ss._salvo = None
+    evento("Entrada", "conta_criada" if nova else "login_conta", {})
+
+
+def explorar() -> None:
+    """Só explorar: o app completo com dados fictícios, sem cadastro e sem gravar nada."""
+    iniciar_estado("padrao")
+    st.session_state.modo = "demo"
+    st.session_state._tutorial = True
+    evento("Entrada", "explorar", {})
+
+
+def salvar_conta() -> None:
+    ss = st.session_state
+    if ss.get("modo") != "conta" or not ss.get("conta_id"):
+        return
+    est = {k: ss[k] for k in CHAVES_CONTA if k in ss}
+    if isinstance(est.get("chat"), list):
+        est["chat"] = est["chat"][-40:]
+    texto = contas.serializar(est)
+    h = hashlib.md5(texto.encode()).hexdigest()
+    if h == ss.get("_salvo"):
+        return
+    try:
+        contas.salvar_estado(ss.conta_id, texto)
+        ss._salvo = h
+    except Exception as e:  # noqa: BLE001
+        ss._erro_conta = str(e)
+
+
+def sincronizar_conta() -> None:
+    """A cada interação: Pix que chegaram de outras contas entram no saldo, e a conta é gravada."""
+    ss = st.session_state
+    if ss.get("modo") != "conta":
+        return
+    agora = time.time()
+    if agora - ss.get("_ult_pix", 0) > 6:
+        ss._ult_pix = agora
+        try:
+            chegaram = contas.receber_pix(ss.conta_id)
+        except Exception as e:  # noqa: BLE001
+            ss._erro_conta = str(e)
+            chegaram = []
+        for r in chegaram:
+            msg = f": “{r['mensagem']}”" if r.get("mensagem") else ""
+            lancar(f"Pix recebido — @{r['de_usuario']}", r["valor"], "Transferência")
+            ss.notificacoes.insert(0, {"quando": "Agora", "tipo": "conta", "titulo": "Pix recebido",
+                                       "texto": f"Você recebeu {D.brl(r['valor'])} de @{r['de_usuario']}{msg}.", "lida": False})
+            st.toast(f"💸 Pix de {D.brl(r['valor'])} recebido de @{r['de_usuario']}", duration="long")
+    salvar_conta()
+
+
+def contatos_pix() -> list[dict]:
+    """Favoritos do Pix. Na conta de teste, primeiro as outras contas cadastradas (chave = @apelido)."""
+    ss = st.session_state
+    base = [dict(c) for c in D.CONTATOS_PIX.get(ss.get("persona"), D.CONTATOS_PIX["padrao"])]
+    if ss.get("modo") != "conta":
+        return base
+    agora = time.time()
+    if "_usuarios" not in ss or agora - ss.get("_ult_usuarios", 0) > 30:
+        try:
+            ss._usuarios = contas.listar_usuarios(ss.conta_id)
+        except Exception:  # noqa: BLE001
+            ss._usuarios = ss.get("_usuarios", [])
+        ss._ult_usuarios = agora
+    return [{"nome": f"@{u}", "chave": f"@{u}", "banco": "Superapp · conta de teste", "usuario": True}
+            for u in ss._usuarios] + base
+
+
+def _pix_para_conta(destino: str, valor_pix: float) -> dict | None:
+    """Se o destino é outra conta de teste (@apelido), o dinheiro cai de verdade no saldo dela."""
+    ss = st.session_state
+    d = str(destino or "").strip()
+    if ss.get("modo") != "conta" or not d.startswith("@"):
+        return None
+    apelido = contas.normalizar_usuario(d.split(" ")[0])
+    try:
+        alvo = contas.enviar_pix(ss.conta_id, ss.usuario, apelido, valor_pix)
+    except Exception as e:  # noqa: BLE001
+        st.warning(f"Não consegui entregar o Pix na conta de @{apelido}: {e}")
+        return None
+    if alvo:
+        evento("Pix", "entre_contas", {"valor": valor_pix})
+    return alvo
+
+
+def _chave_conta_no_codigo(cod: str) -> str | None:
+    """QR Code ou copia e cola gerado por outra conta de teste: a chave é o @apelido."""
+    if st.session_state.get("modo") != "conta":
+        return None
+    m = re.search(r"@([a-z0-9][a-z0-9._]{2,19})", (cod or "").lower())
+    if not m or m.group(1) == st.session_state.get("usuario"):
+        return None
+    try:
+        return m.group(1) if contas.buscar(m.group(1)) else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def tutorial_primeiro_acesso() -> None:
+    """Balões rápidos no primeiro acesso: o que dá para fazer e o que a Lia faz."""
+    ss = st.session_state
+    if not ss.get("_tutorial"):
+        return
+    ss._tutorial = False
+    if ss.get("modo") == "conta":
+        try:
+            contas.marcar_tutorial(ss.conta_id)
+        except Exception:  # noqa: BLE001
+            pass
+    st.toast("👋 Bem-vindo(a)! Aqui tudo é fictício: pode explorar sem medo.", duration="long")
+    st.toast("🎙️ Toque em **LIA** e fale: “pagar o piscineiro 300 reais” ou “qual o melhor investimento?”", duration="long")
+    if ss.get("modo") == "conta":
+        st.toast(f"⚡ Sua chave Pix é **@{ss.usuario}**. No Pix, os contatos com @ são outras contas de teste: "
+                 "o dinheiro cai na conta da pessoa.", duration="long")
+    else:
+        st.toast("⭐ No fim, toque em “Avalie o protótipo” e conte o que achou.", duration="long")
+
+
+# ----------------------------------------------------------------------------- boas-vindas: duas portas
+_CSS_BV = """<style>
+.stApp{background:linear-gradient(180deg,#000012 0%,#00003A 52%,#00001E 100%) !important;}
+.sa-bv-marca{color:white;font-weight:800;letter-spacing:0.28em;font-size:0.95rem;margin:2vh 0 0 2px;opacity:0.9;}
+.sa-bv-ola{color:white;font-weight:800;font-size:1.55rem;line-height:1.2;margin:3.5vh 0 6px 2px;}
+.sa-bv-sub{color:#B8C0D9;font-size:0.92rem;line-height:1.45;margin:0 0 18px 2px;}
+.sa-bv-aviso{color:#FFD9B3;background:rgba(236,112,0,0.12);border:1px solid rgba(236,112,0,0.45);border-radius:14px;
+  padding:10px 12px;font-size:0.84rem;line-height:1.4;margin:6px 0 12px 0;}
+.sa-bv-codigo{color:#00226B;background:#FFF;border-radius:16px;padding:16px;text-align:center;font-size:1.7rem;font-weight:800;
+  letter-spacing:0.18em;margin:8px 0;}
+.sa-bv-txt{color:#DDE3F3;font-size:0.9rem;line-height:1.45;}
+.st-key-bv_criar button, .st-key-bv_explorar button, .st-key-bv_entrar_link button, .st-key-bv_voltar button,
+.st-key-bv_ir_app button, .st-key-bv_esqueci button {
+  border-radius:20px !important; color:white !important; text-align:left !important;
+  background:linear-gradient(160deg, rgba(190,200,250,0.50) 0%, rgba(128,145,222,0.40) 52%, rgba(96,112,205,0.36) 100%) !important;
+  -webkit-backdrop-filter:blur(24px) saturate(150%); backdrop-filter:blur(24px) saturate(150%);
+  border:1px solid rgba(176,184,202,0.42) !important; border-top-color:rgba(222,227,238,0.72) !important;
+  box-shadow:inset 1px 1px 0 rgba(255,255,255,0.30), 0 16px 36px rgba(0,0,30,0.45) !important; }
+.st-key-bv_criar button, .st-key-bv_ir_app button { background:linear-gradient(160deg,#FF9A3D 0%,#EC7000 45%,#C25C00 100%) !important;
+  border-color:rgba(255,214,176,0.55) !important; box-shadow:0 12px 28px rgba(236,112,0,0.45) !important; }
+.st-key-bv_criar button, .st-key-bv_explorar button { min-height:84px; padding:14px 18px !important; }
+.st-key-bv_criar button p, .st-key-bv_explorar button p, .st-key-bv_entrar_link button p, .st-key-bv_voltar button p,
+.st-key-bv_ir_app button p, .st-key-bv_esqueci button p { color:white !important; }
+.st-key-bv_criar button p, .st-key-bv_explorar button p { font-size:0.86rem !important; line-height:1.35; }
+.st-key-bv_criar button strong, .st-key-bv_explorar button strong { font-size:1.15rem; }
+.st-key-bv_esqueci button, .st-key-bv_voltar button { background:transparent !important; border:none !important; box-shadow:none !important; }
+.st-key-bv_form [data-testid="stForm"], .st-key-bv_painel { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.18);
+  border-radius:18px; }
+.st-key-bv_painel { padding:14px 14px 10px 14px; gap:10px; }
+.st-key-bv_form label p, .st-key-bv_painel label p, .st-key-bv_form [data-testid="stCheckbox"] p,
+.st-key-bv_painel [data-testid="stMarkdownContainer"] p { color:#E6EAF5 !important; }
+</style>"""
+
+
+def _bv_topo(titulo: str, sub: str) -> None:
+    st.markdown(_CSS_BV + f'<div class="sa-bv-marca">SUPERAPP</div>'
+                f'<div class="sa-bv-ola">{titulo}</div><div class="sa-bv-sub">{sub}</div>', unsafe_allow_html=True)
+
+
+def _bv_voltar() -> None:
+    if st.button("← Voltar", key="bv_voltar"):
+        for k in ("bv", "bv_nova", "bv_rec", "bv_rec_ok"):
+            st.session_state.pop(k, None)
+        st.rerun()
+
+
+def tela_boas_vindas() -> None:
+    ss = st.session_state
+    etapa = ss.get("bv")
+    if etapa == "criar":
+        return _bv_criar()
+    if etapa == "codigo":
+        return _bv_codigo()
+    if etapa == "entrar":
+        return _bv_entrar()
+    if etapa == "recuperar":
+        return _bv_recuperar()
+    _bv_topo("Como você quer usar o Superapp?",
+             "Protótipo acadêmico (FIAP). Saldo, cartão e investimentos são de mentira: pode testar à vontade.")
+    if st.button("**Criar minha conta**  \nSua conta fica gravada: Pix de verdade entre contas de teste, comprovantes e "
+                 "histórico. Só um apelido e uma senha.", key="bv_criar", width="stretch"):
+        ss.bv = "criar"
+        st.rerun()
+    if st.button("**Só explorar**  \nEntre direto, sem cadastro. Todas as funções, mas nada fica gravado.",
+                 key="bv_explorar", width="stretch"):
+        explorar()
+        st.rerun()
+    st.write("")
+    if st.button("Já tenho conta · Entrar", key="bv_entrar_link", width="stretch", icon=":material/login:"):
+        ss.bv = "entrar"
+        st.rerun()
+    estilo.rodape()
+
+
+def _bv_criar() -> None:
+    ss = st.session_state
+    _bv_topo("Criar minha conta", "Leva 20 segundos. Sua conta já nasce com saldo, cartão, investimentos e boletos para testar.")
+    st.markdown('<div class="sa-bv-aviso">⚠️ <b>Nada aqui é real.</b> Use um <b>apelido</b> (não precisa ser seu nome) e '
+                'uma senha que você <b>não usa em nenhum outro lugar</b>. Não coloque CPF, e-mail, telefone ou qualquer '
+                'dado pessoal.</div>', unsafe_allow_html=True)
+    with st.container(key="bv_form"):
+        with st.form("bv_criar_form"):
+            apelido = st.text_input("Apelido (vira a sua chave Pix)", placeholder="ex.: tony, joao.m", max_chars=20)
+            senha = st.text_input("Senha de 6 números", type="password", max_chars=6, placeholder="••••••")
+            senha2 = st.text_input("Repita a senha", type="password", max_chars=6, placeholder="••••••")
+            ciente = st.checkbox("Entendi: é um protótipo, os valores são fictícios e não vou usar dados pessoais.")
+            ok = st.form_submit_button("Criar conta", type="primary", width="stretch")
+    if ok:
+        erro = contas.validar_usuario(apelido) or contas.validar_senha(senha)
+        if not erro and senha != senha2:
+            erro = "As duas senhas não são iguais."
+        if not erro and not ciente:
+            erro = "Marque que entendeu que é um protótipo com dados fictícios."
+        if erro:
+            st.error(erro)
+        else:
+            try:
+                u, msg, codigo = contas.criar(apelido, senha)
+            except Exception as e:  # noqa: BLE001
+                u, msg, codigo = None, f"Não consegui criar a conta agora: {e}", ""
+            if not u:
+                st.error(msg)
+            else:
+                ss.bv_nova = {"u": u, "codigo": codigo, "senha": senha}
+                ss.bv = "codigo"
+                st.rerun()
+    _bv_voltar()
+
+
+def _bv_codigo() -> None:
+    ss = st.session_state
+    nova = ss.get("bv_nova") or {}
+    u = nova.get("u") or {}
+    _bv_topo(f"Conta @{u.get('usuario', '')} criada!", "Antes de entrar, guarde como recuperar a senha se esquecer.")
+    with st.container(key="bv_painel"):
+        st.markdown('<div class="sa-bv-txt"><b>1. Código de recuperação</b> — anote ou tire um print. Ele aparece só agora.</div>'
+                    f'<div class="sa-bv-codigo">{nova.get("codigo", "")}</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sa-bv-txt"><b>2. Seu rosto (opcional)</b> — para recuperar a senha só olhando para a câmera, '
+                    'neste aparelho.</div>', unsafe_allow_html=True)
+        r = BIO.rosto_aparelho("cadastrar", u.get("usuario", ""), key=f"bv_rosto_{u.get('usuario', '')}")
+        if r and r.get("ok"):
+            evento("Entrada", "rosto_cadastrado", {})
+    if st.button("Entrar no app", key="bv_ir_app", width="stretch", icon=":material/arrow_forward:"):
+        entrar_conta(u, nova.get("senha", ""), nova=True)
+        st.rerun()
+
+
+def _bv_entrar() -> None:
+    ss = st.session_state
+    _bv_topo("Entrar na minha conta", "Use o apelido e a senha de 6 números que você criou.")
+    bloqueio = ss.get("_bv_bloqueio", 0) - time.time()
+    with st.container(key="bv_form"):
+        with st.form("bv_entrar_form"):
+            apelido = st.text_input("Apelido", placeholder="ex.: tony", max_chars=21)
+            senha = st.text_input("Senha", type="password", max_chars=6, placeholder="••••••")
+            ok = st.form_submit_button("Entrar", type="primary", width="stretch")
+    if ok:
+        if bloqueio > 0:
+            st.error(f"Muitas tentativas. Espere {int(bloqueio) + 1} segundos.")
+        else:
+            try:
+                u = contas.autenticar(apelido, senha)
+            except Exception as e:  # noqa: BLE001
+                u = None
+                st.error(f"Não consegui acessar o banco agora: {e}")
+            if u:
+                entrar_conta(u, senha)
+                st.rerun()
+            else:
+                ss._bv_falhas = ss.get("_bv_falhas", 0) + 1
+                if ss._bv_falhas >= 5:
+                    ss._bv_bloqueio, ss._bv_falhas = time.time() + 60, 0
+                st.error("Apelido ou senha incorretos.")
+    if st.button("Esqueci minha senha", key="bv_esqueci", width="stretch"):
+        ss.bv = "recuperar"
+        st.rerun()
+    _bv_voltar()
+
+
+def _bv_recuperar() -> None:
+    ss = st.session_state
+    _bv_topo("Recuperar a senha", "Pelo seu rosto, neste aparelho, ou pelo código de recuperação que apareceu no cadastro.")
+    liberado = ss.get("bv_rec_ok")
+    if not liberado:
+        apelido = contas.normalizar_usuario(st.text_input("Seu apelido", placeholder="ex.: tony", key="bv_rec_apelido"))
+        if not apelido:
+            _bv_voltar()
+            return
+        try:
+            existe = contas.existe(apelido)
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Não consegui acessar o banco agora: {e}")
+            return
+        if not existe:
+            st.error(f"Não achei a conta @{apelido}.")
+            _bv_voltar()
+            return
+        with st.container(key="bv_painel"):
+            r = BIO.rosto_aparelho("verificar", apelido, key=f"bv_rec_rosto_{apelido}")
+            if r and r.get("ok"):
+                ss.bv_rec_ok = apelido
+                evento("Entrada", "recuperou_rosto", {})
+                st.rerun()
+        with st.container(key="bv_form"):
+            with st.form("bv_cod_form"):
+                cod = st.text_input("Código de recuperação", placeholder="XXXX-XXXX", max_chars=12)
+                ok = st.form_submit_button("Usar o código", width="stretch")
+        if ok:
+            if contas.conferir_codigo(apelido, cod):
+                ss.bv_rec_ok = apelido
+                evento("Entrada", "recuperou_codigo", {})
+                st.rerun()
+            st.error("Código incorreto.")
+        _bv_voltar()
+        return
+    st.markdown(f'<div class="sa-bv-txt">✅ Conferido. Crie a senha nova da conta <b>@{liberado}</b>.</div>',
+                unsafe_allow_html=True)
+    with st.container(key="bv_form"):
+        with st.form("bv_nova_senha"):
+            s1 = st.text_input("Senha nova (6 números)", type="password", max_chars=6, placeholder="••••••")
+            s2 = st.text_input("Repita", type="password", max_chars=6, placeholder="••••••")
+            ok = st.form_submit_button("Salvar e entrar", type="primary", width="stretch")
+    if ok:
+        erro = contas.validar_senha(s1) or (None if s1 == s2 else "As duas senhas não são iguais.")
+        if erro:
+            st.error(erro)
+        else:
+            contas.redefinir_senha(liberado, s1)
+            u = contas.autenticar(liberado, s1)
+            if u:
+                entrar_conta(u, s1)
+                st.rerun()
+    _bv_voltar()
 
 
 def tela_pre_login() -> None:
@@ -500,6 +888,7 @@ def executar_voz(op: dict) -> None:
     else:
         nome = str(op.get("nome", "")).split(" (")[0]
         lancar(f"Pix enviado — {nome}", -valor_op, "Transferência")
+        _pix_para_conta(op.get("chave") or nome, valor_op)
         resumo = f"Pix de **{D.brl(valor_op)}** enviado para **{op.get('nome')}** ({op.get('chave')})."
     ss.chat.append({"role": "user", "content": f"🎤 {op.get('comando', '')}"})
     ss.chat.append({"role": "assistant", "content": f"{resumo} Validação: {metodo}. Comprovante em Extrato."})
@@ -677,7 +1066,7 @@ def _lia_inicio_conteudo() -> None:
             with st.chat_message(h["role"], avatar="🧑" if h["role"] == "user" else "💬"):
                 st.markdown(h["content"])
     vencida = next((c for c in ss.contas if c["status"] == "vencida"), None)
-    sugestoes = [f"Pagar a {vencida['descricao']}" if vencida else "Qual conta vence esta semana?", "Manda 50 pra " + D.CONTATOS_PIX[ss.persona][0]["nome"].split(" ")[0],
+    sugestoes = [f"Pagar a {vencida['descricao']}" if vencida else "Qual conta vence esta semana?", "Manda 50 pra " + contatos_pix()[0]["nome"].split(" ")[0],
                  "Quanto está minha fatura?", "Bloqueia meu cartão"]
     esc = st.pills("Sugestões da Lia", sugestoes, key="sug_inicio", label_visibility="collapsed")
     with st.container():
@@ -705,7 +1094,7 @@ def tela_pix() -> None:
     p = persona()
     st.markdown("### ⚡ Pix")
     aba1, aba2, aba3 = st.tabs(["Enviar / Pagar", "Receber", "Limite"])
-    contatos = D.CONTATOS_PIX[ss.persona]
+    contatos = contatos_pix()
 
     # ------------------------------------------------------------- enviar / pagar
     with aba1:
@@ -714,7 +1103,9 @@ def tela_pix() -> None:
 
         if modo == "👥 Para um contato" or modo is None:
             pend = ss.pix_pendente or {}
-            st.caption("Envio em 2 toques: escolha um favorito, informe o valor e confirme.")
+            st.caption("Envio em 2 toques: escolha um favorito, informe o valor e confirme."
+                       + ("  \n👥 Os contatos com **@** são outras contas de teste: o Pix cai de verdade no saldo da pessoa."
+                          if ss.get("modo") == "conta" else ""))
             nomes = [c["nome"] for c in contatos]
             idx = nomes.index(pend["destinatario"]) if pend.get("destinatario") in nomes else 0
             dest = st.selectbox("Para quem?", nomes + ["Outra chave Pix…"], index=idx)
@@ -740,6 +1131,7 @@ def tela_pix() -> None:
                 if metodo:
                     nome = dest if chave == "" else chave
                     lancar(f"Pix enviado — {nome.split(' (')[0]}", -valor, "Transferência")
+                    _pix_para_conta(nome, valor)
                     ss.pix_pendente = None
                     ss.pix_confirmados += 1
                     evento("Pix", "enviado", {"valor": valor, "fora_padrao": fora_padrao, "metodo": metodo})
@@ -795,7 +1187,10 @@ def _pagar_codigo_pix(cod: str, origem: str) -> None:
     if v_cola > ss.saldo:
         st.error("Saldo insuficiente.")
     elif confirmar_rosto(f"pix_{origem}", f"Pix de {D.brl(v_cola)} para {quem}", f"Pagar {D.brl(v_cola)} com rosto"):
-        lancar(f"Pix {'QR Code' if origem == 'qr' else 'copia e cola'} — {quem}", -v_cola, "Transferência")
+        alvo = _chave_conta_no_codigo(cod)
+        lancar(f"Pix {'QR Code' if origem == 'qr' else 'copia e cola'} — {('@' + alvo) if alvo else quem}", -v_cola, "Transferência")
+        if alvo:
+            _pix_para_conta("@" + alvo, v_cola)
         evento("Pix", origem, {"valor": v_cola})
         st.success(f"Pix de {D.brl(v_cola)} pago para {quem}.")
 
@@ -1461,7 +1856,7 @@ def tela_assistente() -> None:
     st.markdown(f"### {AV} {ASSISTENTE}")
     modo = "IA generativa" if ia.api_disponivel() else "regras"
     st.caption(f"Assistente do Superapp · online agora · {modo}")
-    sugestoes = ["Qual meu saldo?", "Manda 50 pra " + D.CONTATOS_PIX[ss.persona][0]["nome"].split(" ")[0],
+    sugestoes = ["Qual meu saldo?", "Manda 50 pra " + contatos_pix()[0]["nome"].split(" ")[0],
                  "Quanto está minha fatura?", "Onde gastei mais esse mês?", "Comprovante do último Pix", "Bloqueia meu cartão"]
     esc = st.pills("Sugestões", sugestoes, key="sug_chat", label_visibility="collapsed")
 
@@ -1763,6 +2158,17 @@ def tela_resultados() -> None:
         estilo.card("🔴 Banco configurado, mas sem conexão", diag["msg"], "perigo")
     if st.button("🔄 Testar de novo", width="stretch"):
         st.rerun()
+    m = contas.metricas()
+    if "erro" not in m:
+        st.markdown("#### Contas de teste (métricas reais de aquisição e retenção)")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            estilo.kpi("Contas criadas", str(m["contas"]), "Criar minha conta", "laranja")
+        with c2:
+            pct = f"{m['voltaram'] / m['contas']:.0%} voltaram" if m["contas"] else "—"
+            estilo.kpi("Voltaram", str(m["voltaram"]), pct, "verde")
+        with c3:
+            estilo.kpi("Pix entre contas", str(m["pix"]), D.brl(m["pix_total"]), "azul")
     df = db.listar_avaliacoes()
     st.caption(("Fonte: Supabase" if db.usando_supabase() else "Fonte: CSV local") + f" · {len(df)} avaliação(ões)")
     if df.empty:
