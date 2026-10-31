@@ -1125,9 +1125,14 @@ export default function (component) {
       if (!valid) return fimFluxo();
       const { metodo, rosto } = valid;
 
+      // Pix igual a um feito há pouco (mesmo destino e valor): a Lia avisa antes de pedir a confirmação
+      const destNorm = norm(String(op.chave && String(op.chave).startsWith("@") ? op.chave : op.nome).split(" (")[0].trim());
+      const rep = op.tipo === "pix" && (d.pix_recentes || []).find((x) => norm(x.para) === destNorm && Math.abs(x.valor - op.valor) < 0.005);
+      if (rep) status("Pix igual a um que você acabou de fazer", "alerta");
+      const avisoRep = rep ? ` Atenção: você já mandou esse mesmo valor para ${rep.nome} ${rep.min < 1 ? "agora há pouco" : "há " + rep.min + (rep.min === 1 ? " minuto" : " minutos")}. Se for mesmo um novo Pix,` : "";
       // 3) confirmação: só "confirmar"
       const aviso = op.novo ? " Lembre: é um destinatário novo, confira os dados." : "";
-      await falar(`${metodo === "sessao" ? "" : metodo === "senha" ? "Senha confirmada. " : "Rosto confirmado. "}${falaDados}.${aviso} Diga confirmar para concluir.`);
+      await falar(`${metodo === "sessao" ? "" : metodo === "senha" ? "Senha confirmada. " : "Rosto confirmado. "}${falaDados}.${aviso}${avisoRep}${avisoRep ? " diga" : " Diga"} confirmar para concluir.`);
       let conf = null;
       for (let tent = 1; tent <= 2 && conf === null; tent++) {
         const rr = await resposta({ placeholder: "Diga ou digite: confirmar / cancelar", botoes: true });
@@ -1243,7 +1248,7 @@ def portao(tela: str, rotulo: str = "", tema: str = "claro", prefixo: str = "bio
 def lia_voz(nome: str, contatos: list[dict], contas: list[dict], saldo: float, key: str = "lia_voz",
             tema: str = "claro", chamada: str = "", dica: str = "", fatura: dict | None = None,
             limite_disponivel: float = 0.0, logado: bool = False, layout: str = "cartao",
-            investimentos: list[dict] | None = None):
+            investimentos: list[dict] | None = None, pix_recentes: list[dict] | None = None):
     """Botão LIA por voz. Consultas sem senha; transações e abrir telas com rosto (ou senha).
     Devolve o resultado do componente: .executar (operação confirmada), .abrir (tela liberada), .consulta."""
     dados = {
@@ -1257,6 +1262,7 @@ def lia_voz(nome: str, contatos: list[dict], contas: list[dict], saldo: float, k
         "produtos": [{"produto": i["produto"], "tipo": i["tipo"], "rent_12m": i["rent_12m"], "liquidez": i["liquidez"]}
                      for i in (investimentos or [])],
         "posicoes": {i["produto"]: round(i["valor"], 2) for i in (investimentos or [])},
+        "pix_recentes": pix_recentes or [],
         "investido": {"total": round(sum(i["valor"] for i in (investimentos or [])), 2),
                       "rend": round(sum(i["valor"] * i["rent_12m"] for i in (investimentos or [])), 2)},
     }

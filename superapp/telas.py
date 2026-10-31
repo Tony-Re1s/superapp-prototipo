@@ -169,6 +169,16 @@ def contexto_ia() -> dict:
     }
 
 
+def avisar(msg: str) -> None:
+    """Toast que aparece mesmo quando a tela recarrega logo em seguida (st.toast antes de st.rerun some)."""
+    st.session_state.setdefault("_avisos", []).append(msg)
+
+
+def mostrar_avisos() -> None:
+    for msg in st.session_state.pop("_avisos", []) or []:
+        st.toast(msg, duration="long")
+
+
 def lancar(descricao: str, valor: float, categoria: str) -> None:
     """Registra movimento no extrato e ajusta saldo."""
     ss = st.session_state
@@ -327,8 +337,7 @@ def cabecalho() -> None:
                 st.toggle(rotulo, key=f"prod_{chave}", disabled=(lotado and not ligado),
                           on_change=_alternar_produto, args=(chave,))
             if st.button("Sair", width="stretch", key="sair"):
-                for k in list(ss.keys()):
-                    del ss[k]
+                sair()
                 st.rerun()
 
 
@@ -371,7 +380,7 @@ def _lia_voz(key: str, **extra):
     p = persona()
     pendentes = [c for c in ss.contas if c["status"] in ("aberta", "vencida")]
     fat = fatura_total()
-    return BIO.lia_voz(ss.nome, contatos_pix(), pendentes, ss.saldo, key=key,
+    return BIO.lia_voz(ss.nome, contatos_pix(), pendentes, ss.saldo, key=key, pix_recentes=_pix_recentes(),
                        fatura={"valor": fat, "vencimento": p["fatura_vencimento"].strftime("%d/%m")} if fat else None,
                        limite_disponivel=p["limite_cartao"] - fat, investimentos=ss.investimentos, **extra)
 
@@ -403,7 +412,7 @@ def _entrar(destino: str, metodo: str) -> None:
 
 # ----------------------------------------------------------------------------- contas de teste (Criar minha conta)
 # O que fica gravado de uma sessão para outra: saldo, extrato (comprovantes), contas, cartão, investimentos etc.
-CHAVES_CONTA = ["persona", "nome", "mostrar_saldo", "produtos", "saldo", "cartao_bloqueado", "cartao_virtual", "contas",
+CHAVES_CONTA = ["pix_feitos", "persona", "nome", "mostrar_saldo", "produtos", "saldo", "cartao_bloqueado", "cartao_virtual", "contas",
                 "extrato", "fatura", "fatura_paga", "notificacoes", "prefs_notif", "chat", "limite_pix_noturno",
                 "modo_viagem", "investimentos", "credito", "agendamentos", "prefere_humano", "contato_confianca",
                 "cartao_virtual_fixo", "avaliado", "pix_confirmados", "compras_pendentes"]
@@ -420,38 +429,142 @@ def _senha_sessao(senha: str) -> dict:
     return {"sal": sal, "hash": hashlib.sha256((sal + senha).encode()).hexdigest()}
 
 
-def entrar_conta(u: dict, senha: str, nova: bool = False) -> None:
-    """Abre a conta de teste: carrega o que estava gravado (ou o kit de conta nova) e entra no app."""
-    for k in list(st.session_state.keys()):
-        del st.session_state[k]
+def _carregar_gravado(uid: int) -> None:
     ss = st.session_state
-    iniciar_estado("conta", nome=_nome_do_apelido(u["usuario"]))
-    gravado = None
+    gravado, versao = None, 0
     try:
-        gravado = contas.carregar_estado(u["id"])
+        gravado, versao = contas.carregar_estado(uid)
     except Exception as e:  # noqa: BLE001
         ss._erro_conta = str(e)
     for k, v in (gravado or {}).items():
         if k in CHAVES_CONTA:
             ss[k] = v
+    ss._versao = versao
+    ss._salvo = None
+
+
+def entrar_conta(u: dict, senha: str | None, nova: bool = False, restaurada: dict | None = None) -> None:
+    """Abre a conta de teste: carrega o que estava gravado (ou o kit de conta nova) e entra no app.
+    `restaurada`: sessão lembrada pelo cookie (atualizou a página) — não pede a senha de novo."""
+    tela_url = st.query_params.get("t")
+    for k in list(st.session_state.keys()):
+        del st.session_state[k]
+    ss = st.session_state
+    iniciar_estado("conta", nome=_nome_do_apelido(u["usuario"]))
+    _carregar_gravado(u["id"])
     ss.modo = "conta"
     ss.conta_id = u["id"]
     ss.usuario = u["usuario"]
     ss.nome = _nome_do_apelido(u["usuario"])
     ss.logado = True
-    ss.tela = "Início"
-    ss._senha_sessao = _senha_sessao(senha)
-    ss._tutorial = not u.get("tutorial_visto")
-    ss._salvo = None
-    evento("Entrada", "conta_criada" if nova else "login_conta", {})
+    ss.tela = tela_url if (restaurada and tela_url in TELAS_RESTAURAVEIS) else "Início"
+    if restaurada:
+        ss._senha_sessao = {"sal": restaurada["senha_sal"], "hash": restaurada["senha_hash"]}
+        ss._token = restaurada["token"]
+        ss._tutorial = False
+    else:
+        ss._senha_sessao = _senha_sessao(senha or "")
+        ss._tutorial = not u.get("tutorial_visto")
+        try:  # lembra o acesso por 12 h: atualizar a página não volta para o login
+            ss._token = contas.criar_sessao(u["id"], ss._senha_sessao["sal"], ss._senha_sessao["hash"])
+            ss._cookies = [{"n": "sa_sessao", "v": ss._token, "s": contas.HORAS_SESSAO * 3600},
+                           {"n": "sa_modo", "v": "conta", "s": contas.HORAS_SESSAO * 3600}]
+        except Exception as e:  # noqa: BLE001
+            ss._erro_conta = str(e)
+    evento("Entrada", "sessao_restaurada" if restaurada else ("conta_criada" if nova else "login_conta"), {})
 
 
-def explorar() -> None:
+TELAS_RESTAURAVEIS = {"Início", "Pix", "Cartão", "Pagar", "Extrato", "Investir", "Gastos", "Avisos", "Assistente",
+                      "Segurança", "Crédito", "Seguros", "Avalie"}
+
+
+def explorar(restaurada: bool = False) -> None:
     """Só explorar: o app completo com dados fictícios, sem cadastro e sem gravar nada."""
+    tela_url = st.query_params.get("t")
     iniciar_estado("padrao")
-    st.session_state.modo = "demo"
-    st.session_state._tutorial = True
-    evento("Entrada", "explorar", {})
+    ss = st.session_state
+    ss.modo = "demo"
+    ss._tutorial = not restaurada
+    if restaurada and tela_url in TELAS_RESTAURAVEIS:  # atualizou a página: volta para a mesma tela
+        ss.logado, ss.tela = True, tela_url
+    if not restaurada:
+        ss._cookies = [{"n": "sa_modo", "v": "demo", "s": contas.HORAS_SESSAO * 3600}, {"n": "sa_sessao", "v": "", "s": 0}]
+    evento("Entrada", "explorar_restaurado" if restaurada else "explorar", {})
+
+
+def restaurar_sessao() -> bool:
+    """Página atualizada: se o navegador tem o cookie do acesso, volta direto para o app."""
+    ss = st.session_state
+    if ss.get("_saiu"):
+        return False
+    try:
+        cookies = st.context.cookies
+        token, modo = cookies.get("sa_sessao"), cookies.get("sa_modo")
+    except Exception:  # noqa: BLE001
+        return False
+    if token:
+        try:
+            u = contas.sessao_valida(token)
+        except Exception:  # noqa: BLE001
+            u = None
+        if u:
+            entrar_conta(u, None, restaurada={**u, "token": token})
+            return True
+    if modo == "demo":
+        explorar(restaurada=True)
+        return True
+    return False
+
+
+def sair() -> None:
+    """Sai da conta (ou do modo explorar), apaga o acesso lembrado e volta para as duas portas."""
+    ss = st.session_state
+    token = ss.get("_token")
+    if token:
+        try:
+            contas.encerrar_sessao(token)
+        except Exception:  # noqa: BLE001
+            pass
+    for k in list(ss.keys()):
+        del ss[k]
+    ss._saiu = True
+    ss._cookies = [{"n": "sa_sessao", "v": "", "s": 0}, {"n": "sa_modo", "v": "", "s": 0}]
+    st.query_params.clear()
+
+
+_COOKIE_JS = """
+export default function (component) {
+  const { data } = component;
+  const feitos = (window.__saCookies = window.__saCookies || {});
+  if (!data || !data.id || feitos[data.id]) return;
+  feitos[data.id] = true;
+  const seguro = location.protocol === "https:" ? "; Secure" : "";
+  for (const c of data.cmds || []) {
+    document.cookie = `${c.n}=${encodeURIComponent(c.v || "")}; Max-Age=${c.s}; Path=/; SameSite=Lax${seguro}`;
+  }
+}
+"""
+_cookie_comp = st.components.v2.component("sa_cookies", html="<span></span>", js=_COOKIE_JS)
+
+
+def aplicar_cookies() -> None:
+    """Grava/apaga os cookies do acesso lembrado (sa_sessao, sa_modo) no navegador."""
+    ss = st.session_state
+    cmds = ss.get("_cookies")
+    if cmds:
+        ss._cookie_id = uuid.uuid4().hex[:8]
+        ss._cookie_cmds = cmds
+        ss._cookies = None
+    if ss.get("_cookie_cmds"):
+        _cookie_comp(key="sa_cookies", data={"id": ss._cookie_id, "cmds": ss._cookie_cmds})
+
+
+def lembrar_tela() -> None:
+    """Guarda a tela atual no endereço (?t=Pix), para voltar a ela se a página for atualizada."""
+    ss = st.session_state
+    t = ss.get("tela") if ss.get("logado") else None
+    if t and st.query_params.get("t") != t:
+        st.query_params["t"] = t
 
 
 def salvar_conta() -> None:
@@ -466,10 +579,15 @@ def salvar_conta() -> None:
     if h == ss.get("_salvo"):
         return
     try:
-        contas.salvar_estado(ss.conta_id, texto)
-        ss._salvo = h
+        nova = contas.salvar_estado(ss.conta_id, texto, ss.get("_versao", 0))
     except Exception as e:  # noqa: BLE001
         ss._erro_conta = str(e)
+        return
+    if nova is None:  # outro aparelho gravou antes: vale o que está no banco
+        _carregar_gravado(ss.conta_id)
+        avisar("🔄 Sua conta foi atualizada com o que você fez em outro aparelho.")
+        return
+    ss._versao, ss._salvo = nova, h
 
 
 def sincronizar_conta() -> None:
@@ -477,8 +595,13 @@ def sincronizar_conta() -> None:
     ss = st.session_state
     if ss.get("modo") != "conta":
         return
+    try:  # a conta mudou em outro aparelho? carrega antes de qualquer coisa
+        if contas.versao_estado(ss.conta_id) != ss.get("_versao", 0):
+            _carregar_gravado(ss.conta_id)
+    except Exception as e:  # noqa: BLE001
+        ss._erro_conta = str(e)
     agora = time.time()
-    if agora - ss.get("_ult_pix", 0) > 6:
+    if ss.pop("_forcar_pix", False) or agora - ss.get("_ult_pix", 0) > 6:
         ss._ult_pix = agora
         try:
             chegaram = contas.receber_pix(ss.conta_id)
@@ -511,7 +634,61 @@ def contatos_pix() -> list[dict]:
             for u in ss._usuarios] + base
 
 
-def _pix_para_conta(destino: str, valor_pix: float) -> dict | None:
+def pix_chegando() -> bool:
+    """Para a vigia de Pix: há Pix de outra conta esperando para entrar no saldo?"""
+    ss = st.session_state
+    if ss.get("modo") != "conta" or not ss.get("conta_id"):
+        return False
+    try:
+        if contas.pix_pendentes(ss.conta_id) > 0:
+            ss._forcar_pix = True
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
+def _ha(seg: float) -> str:
+    m = int(seg // 60)
+    return "menos de 1 minuto" if m < 1 else ("1 minuto" if m == 1 else f"{m} minutos")
+
+
+def _chave_norm(destino: str) -> str:
+    return _norm_txt(str(destino or "").split(" (")[0].strip())
+
+
+def _registrar_pix_feito(destino: str, valor_pix: float) -> None:
+    ss = st.session_state
+    lst = [x for x in (ss.get("pix_feitos") or []) if time.time() - x["ts"] < 3600]
+    lst.append({"para": _chave_norm(destino), "nome": str(destino).split(" (")[0], "valor": round(float(valor_pix), 2),
+                "ts": time.time()})
+    ss.pix_feitos = lst[-20:]
+
+
+def _pix_repetido(destino: str, valor_pix: float, segundos: int = 600) -> float | None:
+    """Há quantos segundos foi feito um Pix igual (mesmo destino e valor) — nesta conta, inclusive em outro aparelho."""
+    ss = st.session_state
+    alvo, v = _chave_norm(destino), round(float(valor_pix), 2)
+    ha = [time.time() - x["ts"] for x in (ss.get("pix_feitos") or [])
+          if x["para"] == alvo and x["valor"] == v and time.time() - x["ts"] < segundos]
+    if ha:
+        return min(ha)
+    if ss.get("modo") == "conta" and str(destino).startswith("@"):
+        try:
+            return contas.pix_repetido(ss.conta_id, str(destino), v, segundos)
+        except Exception:  # noqa: BLE001
+            return None
+    return None
+
+
+def _pix_recentes() -> list[dict]:
+    """Pix dos últimos 10 minutos, para a Lia avisar se o pedido parece repetido."""
+    agora = time.time()
+    return [{"para": x["para"], "nome": x["nome"], "valor": x["valor"], "min": int((agora - x["ts"]) // 60)}
+            for x in (st.session_state.get("pix_feitos") or []) if agora - x["ts"] < 600]
+
+
+def _pix_para_conta(destino: str, valor_pix: float, mensagem: str = "") -> dict | None:
     """Se o destino é outra conta de teste (@apelido), o dinheiro cai de verdade no saldo dela."""
     ss = st.session_state
     d = str(destino or "").strip()
@@ -519,7 +696,7 @@ def _pix_para_conta(destino: str, valor_pix: float) -> dict | None:
         return None
     apelido = contas.normalizar_usuario(d.split(" ")[0])
     try:
-        alvo = contas.enviar_pix(ss.conta_id, ss.usuario, apelido, valor_pix)
+        alvo = contas.enviar_pix(ss.conta_id, ss.usuario, apelido, valor_pix, mensagem)
     except Exception as e:  # noqa: BLE001
         st.warning(f"Não consegui entregar o Pix na conta de @{apelido}: {e}")
         return None
@@ -857,30 +1034,30 @@ def executar_voz(op: dict) -> None:
     if op.get("tipo") in ("aplicar", "resgatar"):
         item = next((i for i in ss.investimentos if i["produto"] == op.get("produto")), None)
         if not item or valor_op <= 0:
-            st.toast("Investimento não encontrado — operação não realizada.")
+            avisar("Investimento não encontrado — operação não realizada.")
             return
         if op["tipo"] == "aplicar":
             if valor_op > ss.saldo:
-                st.toast("Saldo insuficiente — operação não realizada.")
+                avisar("Saldo insuficiente — operação não realizada.")
                 return
             item["valor"] += valor_op
             lancar(f"Aplicação — {item['produto']}", -valor_op, "Investimentos")
             resumo = f"Apliquei **{D.brl(valor_op)}** em **{item['produto']}**."
         else:
             if valor_op > item["valor"]:
-                st.toast("Valor maior que o aplicado — operação não realizada.")
+                avisar("Valor maior que o aplicado — operação não realizada.")
                 return
             item["valor"] -= valor_op
             lancar(f"Resgate — {item['produto']}", valor_op, "Investimentos")
             resumo = f"Resgate de **{D.brl(valor_op)}** de **{item['produto']}** solicitado (liquidez {item['liquidez']})."
         ss.inv_pendente = None
     elif valor_op <= 0 or valor_op > ss.saldo:
-        st.toast("Saldo insuficiente — operação não realizada.")
+        avisar("Saldo insuficiente — operação não realizada.")
         return
     elif op.get("tipo") == "conta":
         c = next((c for c in ss.contas if c["descricao"] == op.get("descricao") and c["status"] != "paga"), None)
         if not c:
-            st.toast("Essa conta já estava paga.")
+            avisar("Essa conta já estava paga.")
             return
         lancar(f"Pagamento — {c['descricao']}", -c["valor"], "Moradia")
         c["status"] = "paga"
@@ -889,12 +1066,13 @@ def executar_voz(op: dict) -> None:
         nome = str(op.get("nome", "")).split(" (")[0]
         lancar(f"Pix enviado — {nome}", -valor_op, "Transferência")
         _pix_para_conta(op.get("chave") or nome, valor_op)
+        _registrar_pix_feito(op.get("chave") if str(op.get("chave") or "").startswith("@") else nome, valor_op)
         resumo = f"Pix de **{D.brl(valor_op)}** enviado para **{op.get('nome')}** ({op.get('chave')})."
     ss.chat.append({"role": "user", "content": f"🎤 {op.get('comando', '')}"})
     ss.chat.append({"role": "assistant", "content": f"{resumo} Validação: {metodo}. Comprovante em Extrato."})
     evento("Início", "lia_voz", {"tipo": op.get("tipo"), "valor": valor_op, "metodo": op.get("metodo"),
                                  "motivo_rosto": op.get("motivo_rosto"), "novo": op.get("novo", False)})
-    st.toast(f"✅ {resumo.replace('**', '')}")
+    avisar(f"✅ {resumo.replace('**', '')}")
 
 
 # ----------------------------------------------------------------------------- linha de alerta com ação
@@ -915,12 +1093,12 @@ def pagar_rapido(c: dict) -> None:
     """Paga a conta direto da Início, sem abrir a tela de pagamentos."""
     ss = st.session_state
     if c["valor"] > ss.saldo:
-        st.toast("Saldo insuficiente para pagar esta conta.")
+        avisar("Saldo insuficiente para pagar esta conta.")
         return
     lancar(f"Pagamento — {c['descricao']}", -c["valor"], "Moradia")
     c["status"] = "paga"
     evento("Início", "pago_rapido", {"desc": c["descricao"], "valor": c["valor"]})
-    st.toast(f"✅ {c['descricao']} paga ({D.brl(c['valor'])}). Comprovante em Extrato.")
+    avisar(f"✅ {c['descricao']} paga ({D.brl(c['valor'])}). Comprovante em Extrato.")
 
 
 # ----------------------------------------------------------------------------- início
@@ -944,7 +1122,7 @@ def tela_inicio() -> None:
         if r:
             ss.compras_pendentes.remove(compra)
             evento("Início", "compra_" + ("aprovada" if r == "ok" else "recusada"), {"estab": compra["estab"], "valor": compra["valor"]})
-            st.toast(f"Compra em {compra['estab']} aprovada." if r == "ok" else
+            avisar(f"Compra em {compra['estab']} aprovada." if r == "ok" else
                      f"Compra em {compra['estab']} recusada. Se não foi você, bloqueie o cartão em Segurança.")
             st.rerun()
 
@@ -1105,15 +1283,21 @@ def tela_pix() -> None:
             pend = ss.pix_pendente or {}
             st.caption("Envio em 2 toques: escolha um favorito, informe o valor e confirme."
                        + ("  \n👥 Os contatos com **@** são outras contas de teste: o Pix cai de verdade no saldo da pessoa."
-                          if ss.get("modo") == "conta" else ""))
+                          if ss.get("modo") == "conta" else
+                          "  \nℹ️ Em “Só explorar” o Pix é simulado. Para mandar Pix de verdade para outra pessoa, crie sua conta."))
             nomes = [c["nome"] for c in contatos]
             idx = nomes.index(pend["destinatario"]) if pend.get("destinatario") in nomes else 0
             dest = st.selectbox("Para quem?", nomes + ["Outra chave Pix…"], index=idx)
             chave = ""
             if dest == "Outra chave Pix…":
                 chave = st.text_input("Chave Pix (CPF, e-mail, celular ou aleatória)")
-            valor = st.number_input("Valor (R$)", min_value=0.0, step=10.0, value=float(pend.get("valor", 0.0)), format="%.2f")
-            st.text_input("Mensagem (opcional)", placeholder="Ex.: almoço de domingo")
+            if chave and ss.get("modo") == "conta":  # digitou o apelido de outra conta de teste, com ou sem @
+                cand = contas.normalizar_usuario(chave)
+                if contas.USUARIO_RE.match(cand) and cand != ss.usuario and contas.buscar(cand):
+                    chave = "@" + cand
+            valor = st.number_input("Valor (R$)", min_value=0.0, step=10.0, value=float(pend.get("valor", 0.0)), format="%.2f",
+                                    key="pix_valor")
+            mensagem = st.text_input("Mensagem (opcional)", placeholder="Ex.: almoço de domingo", key="pix_msg")
             fora_padrao = valor > p["pix_padrao_max"]
             if fora_padrao and valor > 0:
                 cc = ss.contato_confianca
@@ -1122,21 +1306,33 @@ def tela_pix() -> None:
                 st.markdown(f'<div class="sa-card alerta"><div class="titulo">🛡️ Operação fora do seu padrão</div>'
                             f'<div class="sub">Você costuma enviar até {D.brl(p["pix_padrao_max"])}. Por segurança, este Pix '
                             f'avisa seu contato de confiança.{aviso}</div></div>', unsafe_allow_html=True)
+            quem_pix = (dest if chave == "" else chave).split(" (")[0]
+            repetido = _pix_repetido(quem_pix, valor) if valor > 0 else None
+            liberado = True
+            if repetido is not None:
+                st.markdown(f'<div class="sa-card alerta"><div class="titulo">⚠️ Pix parecido com um que você acabou de fazer</div>'
+                            f'<div class="sub">Você já enviou {D.brl(valor)} para {quem_pix} há {_ha(repetido)}. '
+                            f'Confira se não é repetido.</div></div>', unsafe_allow_html=True)
+                liberado = st.checkbox("Sim, quero enviar de novo", key=f"pix_rep_{quem_pix}_{valor}")
             if valor > ss.saldo:
                 st.error("Saldo insuficiente para este Pix.")
-            elif valor > 0:
-                quem_pix = (dest if chave == "" else chave).split(" (")[0]
+            elif valor > 0 and liberado:
                 metodo = confirmar_rosto("pix", f"Pix de {D.brl(valor)} para {quem_pix}",
                                          f"Confirmar Pix de {D.brl(valor)} com rosto")
                 if metodo:
                     nome = dest if chave == "" else chave
                     lancar(f"Pix enviado — {nome.split(' (')[0]}", -valor, "Transferência")
-                    _pix_para_conta(nome, valor)
+                    _pix_para_conta(nome, valor, mensagem)
+                    _registrar_pix_feito(quem_pix, valor)
                     ss.pix_pendente = None
                     ss.pix_confirmados += 1
                     evento("Pix", "enviado", {"valor": valor, "fora_padrao": fora_padrao, "metodo": metodo})
-                    st.success(f"Pix de {D.brl(valor)} enviado para {nome.split(' (')[0]}. Comprovante salvo no extrato.")
-                    st.balloons()
+                    # sai da tela do Pix: o formulário não fica com o valor (evita mandar duas vezes)
+                    for k in ("pix_valor", "pix_msg"):
+                        ss.pop(k, None)
+                    avisar(f"✅ Pix de {D.brl(valor)} enviado para {quem_pix}. Comprovante no Extrato.")
+                    ir_para("Início")
+                    st.rerun()
 
         elif modo == "📷 Ler QR Code":
             st.caption("Aponte a câmera para o QR Code do recebedor.")
@@ -1191,8 +1387,13 @@ def _pagar_codigo_pix(cod: str, origem: str) -> None:
         lancar(f"Pix {'QR Code' if origem == 'qr' else 'copia e cola'} — {('@' + alvo) if alvo else quem}", -v_cola, "Transferência")
         if alvo:
             _pix_para_conta("@" + alvo, v_cola)
+        _registrar_pix_feito(("@" + alvo) if alvo else quem, v_cola)
         evento("Pix", origem, {"valor": v_cola})
-        st.success(f"Pix de {D.brl(v_cola)} pago para {quem}.")
+        for k in ("pix_cola", "pix_camera"):
+            ss.pop(k, None)
+        avisar(f"✅ Pix de {D.brl(v_cola)} pago para {('@' + alvo) if alvo else quem}. Comprovante no Extrato.")
+        ir_para("Início")
+        st.rerun()
 
 
 def _chave_copiavel(texto: str, rotulo: str = "", pequeno: bool = False) -> None:
@@ -2169,6 +2370,11 @@ def tela_resultados() -> None:
             estilo.kpi("Voltaram", str(m["voltaram"]), pct, "verde")
         with c3:
             estilo.kpi("Pix entre contas", str(m["pix"]), D.brl(m["pix_total"]), "azul")
+        with st.expander(f"Ver as {m['contas']} contas e os últimos Pix entre contas"):
+            st.markdown("**Contas de teste**")
+            st.dataframe(contas.listar_contas_admin(), hide_index=True, width="stretch")
+            st.markdown("**Pix entre contas** — “aguardando” = a pessoa ainda não abriu o app depois do Pix")
+            st.dataframe(contas.listar_pix_admin(), hide_index=True, width="stretch")
     df = db.listar_avaliacoes()
     st.caption(("Fonte: Supabase" if db.usando_supabase() else "Fonte: CSV local") + f" · {len(df)} avaliação(ões)")
     if df.empty:

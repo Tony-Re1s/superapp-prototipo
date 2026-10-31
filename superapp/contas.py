@@ -16,6 +16,7 @@ import os
 import re
 import secrets
 import sqlite3
+import time
 from datetime import date, datetime
 
 import pandas as pd
@@ -52,6 +53,15 @@ CREATE TABLE IF NOT EXISTS sa_pix (
     recebido INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS sa_pix_para ON sa_pix (para_id, recebido);
+ALTER TABLE sa_estado ADD COLUMN IF NOT EXISTS versao INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE sa_pix ADD COLUMN IF NOT EXISTS criado_ts BIGINT;
+CREATE TABLE IF NOT EXISTS sa_sessoes (
+    token_hash TEXT PRIMARY KEY,
+    usuario_id BIGINT NOT NULL REFERENCES sa_usuarios(id) ON DELETE CASCADE,
+    senha_sal TEXT, senha_hash TEXT,
+    expira_ts BIGINT NOT NULL
+);
+ALTER TABLE sa_sessoes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sa_usuarios ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sa_estado ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sa_pix ENABLE ROW LEVEL SECURITY;
@@ -81,7 +91,15 @@ CREATE TABLE IF NOT EXISTS sa_pix (
     recebido INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS sa_pix_para ON sa_pix (para_id, recebido);
+CREATE TABLE IF NOT EXISTS sa_sessoes (
+    token_hash TEXT PRIMARY KEY,
+    usuario_id INTEGER NOT NULL,
+    senha_sal TEXT, senha_hash TEXT,
+    expira_ts INTEGER NOT NULL
+);
 """
+SQL_SQLITE_COLUNAS = ["ALTER TABLE sa_estado ADD COLUMN versao INTEGER NOT NULL DEFAULT 0",
+                      "ALTER TABLE sa_pix ADD COLUMN criado_ts INTEGER"]
 
 
 # ----------------------------------------------------------------------------- conexão
@@ -105,7 +123,32 @@ def _preparar_sqlite(arq: str) -> bool:
     os.makedirs(os.path.dirname(arq), exist_ok=True)
     with sqlite3.connect(arq) as con:
         con.executescript(SQL_SQLITE)
+        for sql in SQL_SQLITE_COLUNAS:  # bases criadas antes destas colunas existirem
+            try:
+                con.execute(sql)
+            except sqlite3.OperationalError:
+                pass
     return True
+
+
+def _conexao_pg(url: str):
+    """Uma conexão por sessão do app, reaberta se cair."""
+    import psycopg2
+
+    try:
+        ss = st.session_state
+        con = ss.get("_pg_con")
+    except Exception:  # noqa: BLE001  (fora do Streamlit, ex.: testes)
+        ss, con = None, None
+    if con is None or con.closed:
+        con = psycopg2.connect(url, connect_timeout=10)
+        con.autocommit = True
+        if ss is not None:
+            try:
+                ss["_pg_con"] = con
+            except Exception:  # noqa: BLE001
+                pass
+    return con
 
 
 def _q(sql: str, params: tuple | list = (), fetch: str | None = None):
@@ -116,13 +159,24 @@ def _q(sql: str, params: tuple | list = (), fetch: str | None = None):
 
         url = db._url()
         _preparar_pg(url)
-        with psycopg2.connect(url, connect_timeout=10) as con:
-            with con.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute(sql, params)
-                out = (dict(cur.fetchone() or {}) or None) if fetch == "one" else \
-                      [dict(r) for r in cur.fetchall()] if fetch == "all" else None
-            con.commit()
-        return out
+        for tentativa in (1, 2):
+            con = _conexao_pg(url)
+            try:
+                with con.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(sql, params)
+                    if fetch == "one":
+                        r = cur.fetchone()
+                        return dict(r) if r else None
+                    if fetch == "all":
+                        return [dict(r) for r in cur.fetchall()]
+                    return None
+            except (psycopg2.OperationalError, psycopg2.InterfaceError):
+                try:
+                    con.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                if tentativa == 2:
+                    raise
     _preparar_sqlite(ARQ_SQLITE)
     with sqlite3.connect(ARQ_SQLITE) as con:
         con.row_factory = sqlite3.Row
@@ -283,18 +337,29 @@ def serializar(estado: dict) -> str:
     return json.dumps(_enc(estado), ensure_ascii=False, sort_keys=True)
 
 
-def salvar_estado(uid: int, texto_json: str) -> None:
-    _q("INSERT INTO sa_estado (usuario_id, estado, atualizado_em) VALUES (%s, %s, CURRENT_TIMESTAMP) "
-       "ON CONFLICT (usuario_id) DO UPDATE SET estado = EXCLUDED.estado, atualizado_em = CURRENT_TIMESTAMP",
-       (uid, texto_json))
+def salvar_estado(uid: int, texto_json: str, versao: int) -> int | None:
+    """Grava se ninguém gravou desde a versão que esta sessão conhece. Devolve a versão nova, ou None se
+    outro aparelho gravou antes (aí a sessão recarrega a conta em vez de apagar o que o outro fez)."""
+    r = _q("UPDATE sa_estado SET estado = %s, versao = versao + 1, atualizado_em = CURRENT_TIMESTAMP "
+           "WHERE usuario_id = %s AND versao = %s RETURNING versao", (texto_json, uid, versao), "one")
+    if r:
+        return int(r["versao"])
+    r = _q("INSERT INTO sa_estado (usuario_id, estado, versao) VALUES (%s, %s, 1) "
+           "ON CONFLICT (usuario_id) DO NOTHING RETURNING versao", (uid, texto_json), "one")
+    return int(r["versao"]) if r else None
 
 
-def carregar_estado(uid: int) -> dict | None:
-    r = _q("SELECT estado FROM sa_estado WHERE usuario_id = %s", (uid,), "one")
+def versao_estado(uid: int) -> int:
+    r = _q("SELECT versao FROM sa_estado WHERE usuario_id = %s", (uid,), "one")
+    return int(r["versao"]) if r else 0
+
+
+def carregar_estado(uid: int) -> tuple[dict | None, int]:
+    r = _q("SELECT estado, versao FROM sa_estado WHERE usuario_id = %s", (uid,), "one")
     if not r:
-        return None
+        return None, 0
     bruto = r["estado"]
-    return _dec(json.loads(bruto) if isinstance(bruto, str) else bruto)
+    return _dec(json.loads(bruto) if isinstance(bruto, str) else bruto), int(r["versao"])
 
 
 # ----------------------------------------------------------------------------- Pix entre contas
@@ -304,9 +369,23 @@ def enviar_pix(de_id: int, de_usuario: str, para_usuario: str, valor: float, men
     alvo = buscar(para_usuario)
     if not alvo or alvo["id"] == de_id or valor <= 0:
         return None
-    _q("INSERT INTO sa_pix (de_id, para_id, de_usuario, para_usuario, valor, mensagem) VALUES (%s,%s,%s,%s,%s,%s)",
-       (de_id, alvo["id"], de_usuario, alvo["usuario"], round(float(valor), 2), (mensagem or "")[:140]))
+    _q("INSERT INTO sa_pix (de_id, para_id, de_usuario, para_usuario, valor, mensagem, criado_ts) "
+       "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+       (de_id, alvo["id"], de_usuario, alvo["usuario"], round(float(valor), 2), (mensagem or "")[:140], int(time.time())))
     return alvo
+
+
+def pix_pendentes(uid: int) -> int:
+    r = _q("SELECT count(*) AS n FROM sa_pix WHERE para_id = %s AND recebido = 0", (uid,), "one")
+    return int(r["n"]) if r else 0
+
+
+def pix_repetido(de_id: int, para_usuario: str, valor: float, segundos: int = 600) -> int | None:
+    """Há quantos segundos esta conta mandou o mesmo valor para o mesmo @apelido (None se não mandou)."""
+    r = _q("SELECT max(criado_ts) AS ts FROM sa_pix WHERE de_id = %s AND para_usuario = %s AND valor = %s "
+           "AND criado_ts > %s", (de_id, normalizar_usuario(para_usuario), round(float(valor), 2),
+                                  int(time.time()) - segundos), "one")
+    return int(time.time()) - int(r["ts"]) if r and r.get("ts") else None
 
 
 def receber_pix(uid: int) -> list[dict]:
@@ -316,6 +395,33 @@ def receber_pix(uid: int) -> list[dict]:
     for r in rows:
         r["valor"] = float(r["valor"])
     return sorted(rows, key=lambda r: r["id"])
+
+
+# ----------------------------------------------------------------------------- sessão lembrada
+HORAS_SESSAO = 12
+
+
+def criar_sessao(uid: int, senha_sal: str, senha_hash: str) -> str:
+    """Token guardado num cookie do navegador; no banco fica só o hash dele."""
+    token = secrets.token_urlsafe(24)
+    _q("DELETE FROM sa_sessoes WHERE expira_ts < %s", (int(time.time()),))
+    _q("INSERT INTO sa_sessoes (token_hash, usuario_id, senha_sal, senha_hash, expira_ts) VALUES (%s,%s,%s,%s,%s)",
+       (hashlib.sha256(token.encode()).hexdigest(), uid, senha_sal, senha_hash, int(time.time()) + HORAS_SESSAO * 3600))
+    return token
+
+
+def sessao_valida(token: str) -> dict | None:
+    if not token:
+        return None
+    r = _q("SELECT u.id, u.usuario, u.tutorial_visto, s.senha_sal, s.senha_hash FROM sa_sessoes s "
+           "JOIN sa_usuarios u ON u.id = s.usuario_id WHERE s.token_hash = %s AND s.expira_ts > %s",
+           (hashlib.sha256(token.encode()).hexdigest(), int(time.time())), "one")
+    return r
+
+
+def encerrar_sessao(token: str) -> None:
+    if token:
+        _q("DELETE FROM sa_sessoes WHERE token_hash = %s", (hashlib.sha256(token.encode()).hexdigest(),))
 
 
 # ----------------------------------------------------------------------------- números para o grupo
@@ -329,3 +435,17 @@ def metricas() -> dict:
                 "pix": int(p.get("n") or 0), "pix_total": float(p.get("total") or 0)}
     except Exception as e:  # noqa: BLE001
         return {"erro": str(e)}
+
+
+def listar_contas_admin() -> pd.DataFrame:
+    return pd.DataFrame(_q("SELECT usuario, criado_em, ultimo_acesso, acessos FROM sa_usuarios ORDER BY criado_em DESC",
+                           (), "all") or [])
+
+
+def listar_pix_admin(limite: int = 100) -> pd.DataFrame:
+    df = pd.DataFrame(_q("SELECT id, criado_em, de_usuario, para_usuario, valor, recebido FROM sa_pix ORDER BY id DESC LIMIT %s",
+                         (limite,), "all") or [])
+    if not df.empty:
+        df["valor"] = df["valor"].astype(float)
+        df["recebido"] = df["recebido"].map({1: "sim", 0: "aguardando a pessoa abrir o app"})
+    return df

@@ -26,6 +26,7 @@ if not hasattr(telas, "tela_boas_vindas"):  # módulos antigos carregados antes 
 st.set_page_config(page_title="Superapp", page_icon="🟠", layout="centered",
                    initial_sidebar_state="collapsed")
 estilo.aplicar_css()
+telas.aplicar_cookies()  # grava/apaga o acesso lembrado no navegador
 
 # rota "?admin=1" abre o painel de resultados do grupo
 if st.query_params.get("admin") == "1":
@@ -34,11 +35,21 @@ if st.query_params.get("admin") == "1":
 
 # Duas portas: "Criar minha conta" (conta de teste gravada, Pix de verdade entre contas) ou
 # "Só explorar" (cliente fictício, nada é gravado).
-if "modo" not in st.session_state:
+if "modo" not in st.session_state and not telas.restaurar_sessao():  # atualizou a página: volta ao app
     telas.tela_boas_vindas()
     st.stop()
 if st.session_state.modo == "conta":
     telas.sincronizar_conta()  # Pix que chegaram de outras contas + grava a conta
+
+    @st.fragment(run_every=8)
+    def _vigia_pix():
+        """Pix de outra conta chegou: recarrega a tela para entrar no saldo, sem a pessoa precisar tocar em nada."""
+        if telas.pix_chegando():
+            st.rerun(scope="app")
+
+    _vigia_pix()
+telas.mostrar_avisos()
+telas.lembrar_tela()
 
 # Só explorar: antes de entrar aparece a tela de entrada — atalhos rápidos (rosto ou senha e abre
 # direto a aba) e a Lia por voz, sem entrar no app.

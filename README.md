@@ -74,6 +74,14 @@ rosto, não de identidade.
   - Senha e código são guardados como hash PBKDF2. Para o rosto falhar dentro do app, a senha é conferida no
     navegador, que recebe só um hash com sal da sessão (nunca a senha).
 - **Primeiro acesso:** balões rápidos explicam o que dá para fazer e o que a Lia faz.
+- **Atualizar a página não desloga:** o acesso fica lembrado por 12 h (cookie com um token; no banco, só o hash em
+  `sa_sessoes`) e o app volta para a mesma tela (`?t=Pix`). "Sair" apaga o acesso. "Só explorar" também é lembrado.
+- **Pix:** ao concluir, o app sai da tela do Pix e o formulário zera (evita mandar duas vezes). Pix igual (mesmo
+  destino e valor) nos últimos 10 min mostra aviso e só libera depois de marcar "Sim, quero enviar de novo"; a Lia
+  também avisa. Chave digitada sem @ que for de outra conta de teste também entrega o Pix.
+- **Pix recebido aparece sozinho:** a cada 8 s o app confere se chegou Pix e atualiza o saldo, sem tocar em nada.
+- **Dois aparelhos na mesma conta:** a conta tem versão; um aparelho desatualizado recarrega em vez de apagar o
+  que o outro gravou.
 - **Banco:** tabelas `sa_usuarios`, `sa_estado` (conta gravada) e `sa_pix` (Pix entre contas), criadas sozinhas
   no mesmo Supabase das avaliações. Sem Supabase, usa SQLite local em `dados_local/`.
 - **Painel do grupo (`?admin=1`):** contas criadas, quantas voltaram e Pix entre contas — métricas reais de
