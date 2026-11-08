@@ -275,21 +275,38 @@ def criar(usuario: str, senha: str) -> tuple[dict | None, str, str]:
     return buscar(u), "Conta criada.", codigo
 
 
+def _q_tentativas(sql: str, params: tuple = (), modo: str | None = None):
+    """Consulta na tabela de tentativas; se ela ainda não existe (base criada antes desta versão), cria e repete.
+    Se mesmo assim falhar, o login segue funcionando, só sem o bloqueio."""
+    try:
+        return _q(sql, params, modo)
+    except Exception:  # noqa: BLE001
+        try:
+            tipo = "BIGINT" if _pg() else "INTEGER"
+            _q("CREATE TABLE IF NOT EXISTS sa_tentativas (usuario TEXT PRIMARY KEY, falhas INTEGER NOT NULL DEFAULT 0, "
+               f"bloqueado_ate {tipo} NOT NULL DEFAULT 0)")
+            if _pg():
+                _q("ALTER TABLE sa_tentativas ENABLE ROW LEVEL SECURITY")
+            return _q(sql, params, modo)
+        except Exception:  # noqa: BLE001
+            return None
+
+
 def bloqueio_restante(usuario: str) -> int:
     """Segundos que faltam do bloqueio por senhas erradas (0 = liberado)."""
-    r = _q("SELECT bloqueado_ate FROM sa_tentativas WHERE usuario = %s", (normalizar_usuario(usuario),), "one")
+    r = _q_tentativas("SELECT bloqueado_ate FROM sa_tentativas WHERE usuario = %s", (normalizar_usuario(usuario),), "one")
     return max(0, int(r["bloqueado_ate"]) - int(time.time())) if r else 0
 
 
 def _registrar_falha(usuario: str) -> None:
     u = normalizar_usuario(usuario)
-    r = _q("SELECT falhas FROM sa_tentativas WHERE usuario = %s", (u,), "one")
+    r = _q_tentativas("SELECT falhas FROM sa_tentativas WHERE usuario = %s", (u,), "one")
     falhas = (int(r["falhas"]) if r else 0) + 1
     bloq = int(time.time()) + BLOQUEIO_S if falhas >= MAX_FALHAS else 0
     if r:
-        _q("UPDATE sa_tentativas SET falhas = %s, bloqueado_ate = %s WHERE usuario = %s", (0 if bloq else falhas, bloq, u))
+        _q_tentativas("UPDATE sa_tentativas SET falhas = %s, bloqueado_ate = %s WHERE usuario = %s", (0 if bloq else falhas, bloq, u))
     else:
-        _q("INSERT INTO sa_tentativas (usuario, falhas, bloqueado_ate) VALUES (%s,%s,%s)", (u, 0 if bloq else falhas, bloq))
+        _q_tentativas("INSERT INTO sa_tentativas (usuario, falhas, bloqueado_ate) VALUES (%s,%s,%s)", (u, 0 if bloq else falhas, bloq))
 
 
 def autenticar(usuario: str, senha: str) -> dict | None:
@@ -303,7 +320,7 @@ def autenticar(usuario: str, senha: str) -> dict | None:
         if r:
             _registrar_falha(u)
         return None
-    _q("DELETE FROM sa_tentativas WHERE usuario = %s", (u,))
+    _q_tentativas("DELETE FROM sa_tentativas WHERE usuario = %s", (u,))
     _q("UPDATE sa_usuarios SET ultimo_acesso = CURRENT_TIMESTAMP, acessos = acessos + 1 WHERE id = %s", (r["id"],))
     return {"id": r["id"], "usuario": r["usuario"], "tutorial_visto": r["tutorial_visto"]}
 
@@ -319,7 +336,7 @@ def redefinir_senha(usuario: str, senha: str) -> tuple[bool, str]:
         return False, erro
     h, s = _novo_hash(senha)
     _q("UPDATE sa_usuarios SET senha_hash = %s, senha_sal = %s WHERE usuario = %s", (h, s, normalizar_usuario(usuario)))
-    _q("DELETE FROM sa_tentativas WHERE usuario = %s", (normalizar_usuario(usuario),))
+    _q_tentativas("DELETE FROM sa_tentativas WHERE usuario = %s", (normalizar_usuario(usuario),))
     return True, "Senha nova cadastrada."
 
 
