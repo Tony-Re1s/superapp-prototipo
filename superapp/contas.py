@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import math
 import json
 import os
 import re
@@ -27,6 +28,9 @@ from . import db
 USUARIO_RE = re.compile(r"^[a-z0-9][a-z0-9._]{2,19}$")
 RESERVADOS = {"admin", "superapp", "lia", "rafael", "suporte", "banco", "teste"}
 ITERACOES = 120_000
+MAX_FALHAS = 5          # senhas erradas seguidas antes de bloquear a conta
+BLOQUEIO_S = 300        # bloqueio de 5 min (vale para a conta, em qualquer aba ou aparelho)
+PIX_MAX = 1_000_000.00  # teto de segurança de um Pix entre contas de teste
 ARQ_SQLITE = os.path.join(db.PASTA_LOCAL, "contas.sqlite3")
 
 SQL_PG = """
@@ -65,6 +69,12 @@ ALTER TABLE sa_sessoes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sa_usuarios ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sa_estado ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sa_pix ENABLE ROW LEVEL SECURITY;
+CREATE TABLE IF NOT EXISTS sa_tentativas (
+    usuario TEXT PRIMARY KEY,
+    falhas INTEGER NOT NULL DEFAULT 0,
+    bloqueado_ate BIGINT NOT NULL DEFAULT 0
+);
+ALTER TABLE sa_tentativas ENABLE ROW LEVEL SECURITY;
 """
 
 SQL_SQLITE = """
@@ -96,6 +106,11 @@ CREATE TABLE IF NOT EXISTS sa_sessoes (
     usuario_id INTEGER NOT NULL,
     senha_sal TEXT, senha_hash TEXT,
     expira_ts INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sa_tentativas (
+    usuario TEXT PRIMARY KEY,
+    falhas INTEGER NOT NULL DEFAULT 0,
+    bloqueado_ate INTEGER NOT NULL DEFAULT 0
 );
 """
 SQL_SQLITE_COLUNAS = ["ALTER TABLE sa_estado ADD COLUMN versao INTEGER NOT NULL DEFAULT 0",
@@ -260,11 +275,35 @@ def criar(usuario: str, senha: str) -> tuple[dict | None, str, str]:
     return buscar(u), "Conta criada.", codigo
 
 
+def bloqueio_restante(usuario: str) -> int:
+    """Segundos que faltam do bloqueio por senhas erradas (0 = liberado)."""
+    r = _q("SELECT bloqueado_ate FROM sa_tentativas WHERE usuario = %s", (normalizar_usuario(usuario),), "one")
+    return max(0, int(r["bloqueado_ate"]) - int(time.time())) if r else 0
+
+
+def _registrar_falha(usuario: str) -> None:
+    u = normalizar_usuario(usuario)
+    r = _q("SELECT falhas FROM sa_tentativas WHERE usuario = %s", (u,), "one")
+    falhas = (int(r["falhas"]) if r else 0) + 1
+    bloq = int(time.time()) + BLOQUEIO_S if falhas >= MAX_FALHAS else 0
+    if r:
+        _q("UPDATE sa_tentativas SET falhas = %s, bloqueado_ate = %s WHERE usuario = %s", (0 if bloq else falhas, bloq, u))
+    else:
+        _q("INSERT INTO sa_tentativas (usuario, falhas, bloqueado_ate) VALUES (%s,%s,%s)", (u, 0 if bloq else falhas, bloq))
+
+
 def autenticar(usuario: str, senha: str) -> dict | None:
-    r = _q("SELECT id, usuario, senha_hash, senha_sal, tutorial_visto FROM sa_usuarios WHERE usuario = %s",
-           (normalizar_usuario(usuario),), "one")
-    if not r or not hmac.compare_digest(_hash(senha or "", r["senha_sal"]), r["senha_hash"]):
+    """Confere apelido e senha. Depois de 5 senhas erradas a conta fica bloqueada por 5 min,
+    em qualquer aba ou aparelho (a contagem fica no banco, não na sessão)."""
+    u = normalizar_usuario(usuario)
+    if bloqueio_restante(u):
         return None
+    r = _q("SELECT id, usuario, senha_hash, senha_sal, tutorial_visto FROM sa_usuarios WHERE usuario = %s", (u,), "one")
+    if not r or not hmac.compare_digest(_hash(senha or "", r["senha_sal"]), r["senha_hash"]):
+        if r:
+            _registrar_falha(u)
+        return None
+    _q("DELETE FROM sa_tentativas WHERE usuario = %s", (u,))
     _q("UPDATE sa_usuarios SET ultimo_acesso = CURRENT_TIMESTAMP, acessos = acessos + 1 WHERE id = %s", (r["id"],))
     return {"id": r["id"], "usuario": r["usuario"], "tutorial_visto": r["tutorial_visto"]}
 
@@ -280,6 +319,7 @@ def redefinir_senha(usuario: str, senha: str) -> tuple[bool, str]:
         return False, erro
     h, s = _novo_hash(senha)
     _q("UPDATE sa_usuarios SET senha_hash = %s, senha_sal = %s WHERE usuario = %s", (h, s, normalizar_usuario(usuario)))
+    _q("DELETE FROM sa_tentativas WHERE usuario = %s", (normalizar_usuario(usuario),))
     return True, "Senha nova cadastrada."
 
 
@@ -364,10 +404,20 @@ def carregar_estado(uid: int) -> tuple[dict | None, int]:
 
 # ----------------------------------------------------------------------------- Pix entre contas
 def enviar_pix(de_id: int, de_usuario: str, para_usuario: str, valor: float, mensagem: str = "") -> dict | None:
-    """Registra o Pix para a outra conta (o débito de quem envia já foi feito na sessão dele).
-    Devolve o destinatário, ou None se o apelido não existe."""
+    """Registra o Pix para a outra conta. Recusa (None) valor menor que R$ 0,01, não numérico, acima do teto
+    ou acima do saldo gravado de quem envia, apelido inexistente e Pix para si mesmo.
+    O app só debita o saldo de quem envia depois que este registro dá certo."""
+    try:
+        valor = round(float(valor), 2)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(valor) or valor < 0.01 or valor > PIX_MAX:
+        return None
     alvo = buscar(para_usuario)
-    if not alvo or alvo["id"] == de_id or valor <= 0:
+    if not alvo or alvo["id"] == de_id:
+        return None
+    est, _ = carregar_estado(de_id)          # saldo gravado de quem envia (antes do débito desta operação)
+    if est is not None and valor > round(float(est.get("saldo", 0) or 0), 2) + 0.005:
         return None
     _q("INSERT INTO sa_pix (de_id, para_id, de_usuario, para_usuario, valor, mensagem, criado_ts) "
        "VALUES (%s,%s,%s,%s,%s,%s,%s)",

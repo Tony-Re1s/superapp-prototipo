@@ -688,8 +688,10 @@ def _pix_recentes() -> list[dict]:
             for x in (st.session_state.get("pix_feitos") or []) if agora - x["ts"] < 600]
 
 
-def _pix_para_conta(destino: str, valor_pix: float, mensagem: str = "") -> dict | None:
-    """Se o destino é outra conta de teste (@apelido), o dinheiro cai de verdade no saldo dela."""
+def _pix_para_conta(destino: str, valor_pix: float, mensagem: str = "") -> dict | bool | None:
+    """Se o destino é outra conta de teste (@apelido), o dinheiro cai de verdade no saldo dela.
+    Devolve o destinatário; None se o destino não é uma conta de teste; False se a entrega foi recusada
+    (o chamador então não debita nada)."""
     ss = st.session_state
     d = str(destino or "").strip()
     if ss.get("modo") != "conta" or not d.startswith("@"):
@@ -698,10 +700,12 @@ def _pix_para_conta(destino: str, valor_pix: float, mensagem: str = "") -> dict 
     try:
         alvo = contas.enviar_pix(ss.conta_id, ss.usuario, apelido, valor_pix, mensagem)
     except Exception as e:  # noqa: BLE001
-        st.warning(f"Não consegui entregar o Pix na conta de @{apelido}: {e}")
-        return None
-    if alvo:
-        evento("Pix", "entre_contas", {"valor": valor_pix})
+        avisar(f"Não consegui entregar o Pix na conta de @{apelido}: {e}. Nada foi debitado.")
+        return False
+    if not alvo:
+        avisar(f"Pix para @{apelido} não realizado (valor ou saldo inválido). Nada foi debitado.")
+        return False
+    evento("Pix", "entre_contas", {"valor": valor_pix})
     return alvo
 
 
@@ -879,11 +883,19 @@ def _bv_entrar() -> None:
             st.error(f"Muitas tentativas. Espere {int(bloqueio) + 1} segundos.")
         else:
             try:
-                u = contas.autenticar(apelido, senha)
+                espera = contas.bloqueio_restante(apelido)
+                u = None if espera else contas.autenticar(apelido, senha)
+                if not u and not espera:
+                    espera = contas.bloqueio_restante(apelido)
             except Exception as e:  # noqa: BLE001
-                u = None
+                u, espera = None, 0
                 st.error(f"Não consegui acessar o banco agora: {e}")
-            if u:
+            if espera:
+                st.error(f"Conta bloqueada por excesso de senhas erradas. Tente de novo em {espera // 60 + 1} min "
+                         "ou use “Esqueci minha senha”.")
+                u = None
+                ss._bv_falhas = 0
+            elif u:
                 entrar_conta(u, senha)
                 st.rerun()
             else:
@@ -1051,8 +1063,8 @@ def executar_voz(op: dict) -> None:
             lancar(f"Resgate — {item['produto']}", valor_op, "Investimentos")
             resumo = f"Resgate de **{D.brl(valor_op)}** de **{item['produto']}** solicitado (liquidez {item['liquidez']})."
         ss.inv_pendente = None
-    elif valor_op <= 0 or valor_op > ss.saldo:
-        avisar("Saldo insuficiente — operação não realizada.")
+    elif round(valor_op, 2) < 0.01 or valor_op > ss.saldo:
+        avisar("Valor inválido ou saldo insuficiente — operação não realizada.")
         return
     elif op.get("tipo") == "conta":
         c = next((c for c in ss.contas if c["descricao"] == op.get("descricao") and c["status"] != "paga"), None)
@@ -1064,8 +1076,9 @@ def executar_voz(op: dict) -> None:
         resumo = f"Paguei **{c['descricao']}** ({D.brl(c['valor'])})."
     else:
         nome = str(op.get("nome", "")).split(" (")[0]
+        if _pix_para_conta(op.get("chave") or nome, valor_op) is False:  # recusado: não debita
+            return
         lancar(f"Pix enviado — {nome}", -valor_op, "Transferência")
-        _pix_para_conta(op.get("chave") or nome, valor_op)
         _registrar_pix_feito(op.get("chave") if str(op.get("chave") or "").startswith("@") else nome, valor_op)
         resumo = f"Pix de **{D.brl(valor_op)}** enviado para **{op.get('nome')}** ({op.get('chave')})."
     ss.chat.append({"role": "user", "content": f"🎤 {op.get('comando', '')}"})
@@ -1297,6 +1310,9 @@ def tela_pix() -> None:
                     chave = "@" + cand
             valor = st.number_input("Valor (R$)", min_value=0.0, step=10.0, value=float(pend.get("valor", 0.0)), format="%.2f",
                                     key="pix_valor")
+            valor_digitado, valor = valor, round(valor, 2)  # Pix só em centavos
+            if 0 < valor_digitado and valor < 0.01:
+                st.error("O valor mínimo do Pix é R$ 0,01.")
             mensagem = st.text_input("Mensagem (opcional)", placeholder="Ex.: almoço de domingo", key="pix_msg")
             fora_padrao = valor > p["pix_padrao_max"]
             if fora_padrao and valor > 0:
@@ -1321,8 +1337,9 @@ def tela_pix() -> None:
                                          f"Confirmar Pix de {D.brl(valor)} com rosto")
                 if metodo:
                     nome = dest if chave == "" else chave
+                    if _pix_para_conta(nome, valor, mensagem) is False:  # recusado: não debita
+                        st.rerun()
                     lancar(f"Pix enviado — {nome.split(' (')[0]}", -valor, "Transferência")
-                    _pix_para_conta(nome, valor, mensagem)
                     _registrar_pix_feito(quem_pix, valor)
                     ss.pix_pendente = None
                     ss.pix_confirmados += 1
@@ -1384,9 +1401,9 @@ def _pagar_codigo_pix(cod: str, origem: str) -> None:
         st.error("Saldo insuficiente.")
     elif confirmar_rosto(f"pix_{origem}", f"Pix de {D.brl(v_cola)} para {quem}", f"Pagar {D.brl(v_cola)} com rosto"):
         alvo = _chave_conta_no_codigo(cod)
+        if alvo and _pix_para_conta("@" + alvo, v_cola) is False:  # recusado: não debita
+            st.rerun()
         lancar(f"Pix {'QR Code' if origem == 'qr' else 'copia e cola'} — {('@' + alvo) if alvo else quem}", -v_cola, "Transferência")
-        if alvo:
-            _pix_para_conta("@" + alvo, v_cola)
         _registrar_pix_feito(("@" + alvo) if alvo else quem, v_cola)
         evento("Pix", origem, {"valor": v_cola})
         for k in ("pix_cola", "pix_camera"):
