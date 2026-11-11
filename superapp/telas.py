@@ -818,7 +818,8 @@ def tela_boas_vindas() -> None:
 
 def _bv_criar() -> None:
     ss = st.session_state
-    _bv_topo("Criar minha conta", "Leva 20 segundos. Sua conta já nasce com saldo, cartão, investimentos e boletos para testar.")
+    _bv_topo("Criar minha conta", "Leva 20 segundos. Sua conta já nasce com saldo, cartão, investimentos e boletos para testar. "
+             "Use a Lia, nossa IA, para te ajudar nas operações do dia a dia: é só tocar e falar.")
     st.markdown('<div class="sa-bv-aviso">⚠️ <b>Nada aqui é real.</b> Use um <b>apelido</b> (não precisa ser seu nome) e '
                 'uma senha que você <b>não usa em nenhum outro lugar</b>. Não coloque CPF, e-mail, telefone ou qualquer '
                 'dado pessoal.</div>', unsafe_allow_html=True)
