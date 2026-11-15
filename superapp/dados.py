@@ -111,6 +111,7 @@ CATEGORIAS = {
 CONTATOS_PIX = {
     "conta": [
         {"nome": "Mãe", "chave": "11 97700-5566", "banco": "Caixa"},
+        {"nome": "Irmã", "chave": "irma@email.com", "banco": "Nubank"},
         {"nome": "Dentista", "chave": "22.333.444/0001-55", "banco": "Bradesco"},
         {"nome": "Piscineiro (Seu Carlos)", "chave": "11 99123-4567", "banco": "Itaú"},
     ],

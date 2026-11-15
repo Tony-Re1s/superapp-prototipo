@@ -33,6 +33,26 @@ PRODUTOS_OPCIONAIS = [("cartao", "Cartão de crédito"), ("investimentos", "Inve
                       ("credito", "Crédito pessoal"), ("seguros", "Seguros")]
 
 
+# (padrão, como aparece para o cliente) — o texto é comparado sem acentos e em minúsculas
+SINAIS_GOLPE = [
+    (r"troquei de (numero|celular|telefone)|(numero|celular|zap|whats) novo|novo (numero|celular)|esse e meu (numero|novo)", "pessoa dizendo que trocou de número"),
+    (r"\b(me )?(manda|mande|faz|faca|passa|envia|empresta|transfere|deposita)\b.{0,30}\b(pix|dinheiro|transferencia|deposito|\d+ ?reais|r\$)", "pedido de dinheiro ou Pix"),
+    (r"\bpix\b.{0,40}\b(urgente|agora|hoje|rapido|ja)\b|\b(urgente|agora|rapido)\b.{0,40}\bpix\b", "pressa para fazer um Pix"),
+    (r"https?://|www\.|bit\.ly|\.com\b|\.net\b|link|clique|acesse", "link para clicar"),
+    (r"senha|codigo|token|cvv|confirme seus dados|atualize (seus )?dados|cadastr", "pedido de senha, código ou dados"),
+    (r"urgente|imediat|ultimo aviso|prazo|hoje ainda|em ate 24", "urgência"),
+    (r"bloquead|suspens|cancelad|desativad|irregular|pendencia|regulariz", "ameaça de bloqueio ou pendência"),
+    (r"premio|sorteio|ganhou|parabens|resgate (seu|o) |cashback|brinde", "prêmio ou vantagem inesperada"),
+    (r"central|0800|gerente|funcionario|setor de seguranca|departamento", "alguém se passando pelo banco"),
+    (r"taxa|multa|boleto|entrega|encomenda|correios|receita federal|detran|fgts|inss", "cobrança ou taxa inesperada"),
+]
+
+
+def sinais_de_golpe(texto: str) -> list[str]:
+    m = _norm_txt(texto)
+    return [rotulo for padrao, rotulo in SINAIS_GOLPE if re.search(padrao, m)]
+
+
 def iniciar_estado(persona_id: str, nome: str = "") -> None:
     p = D.PERSONAS[persona_id]
     ss = st.session_state
@@ -166,6 +186,7 @@ def contexto_ia() -> dict:
         "prefere_humano": st.session_state.prefere_humano,
         "descricoes": sorted(set(st.session_state.extrato["descricao"].tolist())),
         "contato_confianca": st.session_state.contato_confianca,
+        "fatura": fatura_total(),
     }
 
 
@@ -615,6 +636,18 @@ def sincronizar_conta() -> None:
                                        "texto": f"Você recebeu {D.brl(r['valor'])} de @{r['de_usuario']}{msg}.", "lida": False})
             st.toast(f"💸 Pix de {D.brl(r['valor'])} recebido de @{r['de_usuario']}", duration="long")
     salvar_conta()
+
+
+def _indice_contato(pedido: str, nomes: list[str]) -> int | None:
+    """Acha o favorito pedido pela Lia ("Seu Carlos" → "Piscineiro (Seu Carlos)"). None = não está na lista."""
+    if not pedido:
+        return None
+    alvo = _norm_txt(pedido)
+    for k, n in enumerate(nomes):
+        nn = _norm_txt(n)
+        if alvo == nn or alvo in nn or nn.split(" (")[0] in alvo:
+            return k
+    return None
 
 
 def contatos_pix() -> list[dict]:
@@ -1300,8 +1333,14 @@ def tela_pix() -> None:
                           if ss.get("modo") == "conta" else
                           "  \nℹ️ Em “Só explorar” o Pix é simulado. Para mandar Pix de verdade para outra pessoa, crie sua conta."))
             nomes = [c["nome"] for c in contatos]
-            idx = nomes.index(pend["destinatario"]) if pend.get("destinatario") in nomes else 0
-            dest = st.selectbox("Para quem?", nomes + ["Outra chave Pix…"], index=idx)
+            pedido = str(pend.get("destinatario") or "")
+            idx = _indice_contato(pedido, nomes)
+            if pedido and idx is None:
+                idx = len(nomes)  # "Outra chave Pix…": a Lia não achou o contato nos favoritos
+                st.markdown(f'<div class="sa-card ia"><div class="titulo">✨ Preparado pela Lia</div><div class="sub">Não achei '
+                            f'<b>{pedido}</b> nos seus favoritos. Informe a chave Pix abaixo e confirme.</div></div>',
+                            unsafe_allow_html=True)
+            dest = st.selectbox("Para quem?", nomes + ["Outra chave Pix…"], index=idx or 0)
             chave = ""
             if dest == "Outra chave Pix…":
                 chave = st.text_input("Chave Pix (CPF, e-mail, celular ou aleatória)")
@@ -1724,7 +1763,7 @@ def tela_extrato() -> None:
     ss = st.session_state
     st.markdown("### 📄 Extrato da conta")
     if ss.get("comprovante_pendente"):
-        st.info("A Lia abriu seus comprovantes — veja a aba **Comprovantes**.")
+        _comprovante_em_destaque(ss.comprovante_pendente.get("busca", ""))
     aba1, aba2 = st.tabs(["Movimentações", "Comprovantes"])
     with aba1:
         df, ini, fim = _extrato_filtrado()
@@ -1774,6 +1813,31 @@ def tela_extrato() -> None:
 def _comprovante_txt(r) -> str:
     return (f"SUPERAPP — COMPROVANTE (fictício)\n{'-' * 40}\nOperação: {r.descricao}\nData: {D.data_br(r.data)}\n"
             f"Valor: {D.brl(r.valor)}\nCategoria: {r.categoria}\nAutenticação: {uuid.uuid5(uuid.NAMESPACE_DNS, f'{r.descricao}{r.data}{r.valor}').hex[:20].upper()}\n")
+
+
+def _comprovante_em_destaque(busca: str) -> None:
+    """Pedido de comprovante à Lia: abre o mais recente que bate com a busca, pronto para baixar."""
+    ss = st.session_state
+    df = ss.extrato.copy()
+    df = df[df["descricao"].str.contains("Pix|Pagamento|Boleto|Aplicação|Resgate|Crédito|Antecipação", case=False, regex=True)]
+    b = (busca or "").strip()
+    achados = df
+    if b:
+        try:
+            v = float(b.replace("R$", "").replace(".", "").replace(",", "."))
+            achados = df[(df["valor"].abs() - v).abs() < 0.005]
+        except ValueError:
+            achados = df[df["descricao"].str.contains(b, case=False, regex=False)]
+    if achados.empty:
+        st.info(f"Não achei comprovante{' de ' + b if b else ''}. Veja todos na aba **Comprovantes**.")
+        return
+    r = next(achados.sort_values("data", ascending=False).itertuples())
+    st.markdown(f'<div class="sa-card ia"><div class="titulo">✨ Comprovante que a Lia encontrou</div>'
+                f'<div class="sub">{r.descricao}<br>{D.data_br(r.data)} · {D.brl(r.valor)}</div></div>', unsafe_allow_html=True)
+    st.download_button("📄 Baixar comprovante", _comprovante_txt(r).encode("utf-8"), "comprovante.txt", key="cmp_lia",
+                       type="primary", width="stretch")
+    if len(achados) > 1:
+        st.caption(f"Há mais {len(achados) - 1} parecido(s) na aba **Comprovantes**.")
 
 
 def tela_comprovantes() -> None:
@@ -2201,8 +2265,7 @@ def tela_seguranca() -> None:
     st.markdown("#### Verificar se uma mensagem é golpe")
     txt = st.text_area("Cole aqui o SMS, e-mail ou mensagem que recebeu", placeholder="Ex.: 'Sua conta será bloqueada, clique no link…'")
     if txt:
-        m = txt.lower()
-        sinais = [s for s in ["link", "clique", "urgente", "bloquead", "senha", "atualize", "prêmio", "premio", "sorteio", "central 0800", "whatsapp"] if s in m]
+        sinais = sinais_de_golpe(txt)
         if sinais:
             estilo.card("🚩 Alto risco de golpe", "Sinais encontrados: " + ", ".join(sinais) + ". O Superapp nunca pede senha, "
                         "nem envia links por SMS. Não clique e, se já clicou, toque em 'Fui vítima de golpe'.", "perigo")

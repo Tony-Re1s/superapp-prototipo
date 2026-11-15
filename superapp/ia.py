@@ -27,7 +27,7 @@ PALAVRAS_FRUSTRACAO = [
     "quero falar com", "atendente", "humano", "uma pessoa", "gente de verdade", "gerente",
 ]
 PALAVRAS_SEGURANCA = [
-    "golpe", "fraude", "roubar", "roubaram", "clonad", "nao reconheco", "nao fui eu", "invadir",
+    "golpe", "fraude", "roubar", "roubaram", "clonad", "clonar", "clonaram", "nao reconheco", "nao fui eu", "invadir",
     "invadiram", "hacke", "suspeit", "estranh", "perdi o celular", "roubaram meu celular", "senha vazou",
 ]
 
@@ -51,6 +51,32 @@ def api_disponivel() -> bool:
         return False
 
 
+def _fatura(ctx: dict) -> float:
+    return float(ctx.get("fatura", ctx["persona"]["fatura_atual"]))
+
+
+def _investido(ctx: dict) -> float:
+    invs = ctx.get("investimentos")
+    return float(sum(i["valor"] for i in invs)) if invs else float(ctx["persona"]["patrimonio_inv"])
+
+
+# erros comuns de digitação e ditado vistos nas avaliações — corrigidos antes de interpretar
+CORRECOES = {
+    r"\blus\b": "luz", r"\bcomprovanti\w*": "comprovante", r"\bcomprovate\b": "comprovante", r"\bdentita\b": "dentista",
+    r"\bintend\w*": "entendeu", r"\b(pisinero|pisineiro|piscinero|pineiro)\b": "piscineiro", r"\birma\b": "irmã",
+    r"\bmae\b": "mãe", r"\bfatrua\b": "fatura", r"\bextarto\b": "extrato", r"\binvestimeto\w*": "investimento",
+}
+# apelidos de contas: "luz" = Enel, "internet" = Vivo, "água" = Sabesp
+SINONIMOS_CONTA = {"luz": "enel", "energia": "enel", "internet": "vivo", "wifi": "vivo", "agua": "sabesp"}
+
+
+def corrigir_digitacao(texto: str) -> str:
+    t = texto
+    for padrao, certo in CORRECOES.items():
+        t = re.sub(padrao, certo, t, flags=re.I)
+    return t
+
+
 def _contexto_texto(ctx: dict) -> str:
     p = ctx["persona"]
     contas = "\n".join(
@@ -64,19 +90,21 @@ def _contexto_texto(ctx: dict) -> str:
     contratos = "".join(f"; contrato de {D.brl(c['valor'])} em {c['parcelas']}x de {D.brl(c['parcela'])}" for c in ctx.get("contratos", []))
     prods = ", ".join(k for k, v in ctx.get("produtos", {}).items() if v) or "só conta corrente"
     return f"""
+PRIMEIRO NOME DO CLIENTE: {p['primeiro_nome']} (use SOMENTE este nome; nunca outro).
 CLIENTE: {p['nome']}, {p['idade']} anos. Cliente há {p['tempo_cliente']}. {p['descricao']}
 Prefere atendimento humano em temas sensíveis: {"sim" if p['prefere_humano'] else "não, prefere resolver sozinho"}.
 
 SALDO EM CONTA: {D.brl(ctx['saldo'])}
-CARTÃO: fatura atual {D.brl(p['fatura_atual'])}, vence {D.data_br(p['fatura_vencimento'])}; limite {D.brl(p['limite_cartao'])}, disponível {D.brl(p['limite_cartao'] - p['fatura_atual'])}. Cartão {"BLOQUEADO" if ctx['cartao_bloqueado'] else "ativo"}.
-INVESTIMENTOS: patrimônio {D.brl(p['patrimonio_inv'])}.
+CARTÃO: fatura atual {D.brl(_fatura(ctx))}{" (já paga)" if _fatura(ctx) == 0 else ""}, vence {D.data_br(p['fatura_vencimento'])}; limite {D.brl(p['limite_cartao'])}, disponível {D.brl(p['limite_cartao'] - _fatura(ctx))}. Cartão {"BLOQUEADO" if ctx['cartao_bloqueado'] else "ativo"}.
+INVESTIMENTOS: total investido hoje {D.brl(_investido(ctx))}.
 CONTAS A PAGAR:
 {contas}
 CONTATOS PIX FAVORITOS:
 {contatos}
 GASTOS DO MÊS POR CATEGORIA (conta corrente):
 {gastos}
-LIMITE DE PIX SEM CONFIRMAÇÃO REFORÇADA: {D.brl(p['pix_padrao_max'])} (acima disso o app pede senha).
+CONFIRMAÇÃO: todo Pix, pagamento, aplicação e empréstimo é confirmado pelo cliente na tela (rosto ou senha), qualquer valor.
+Pix acima de {D.brl(p['pix_padrao_max'])} também avisa o contato de confiança.
 INVESTIMENTOS (produtos que o cliente já tem; aplicar/resgatar usa um destes nomes):
 {invs}
 CRÉDITO PESSOAL: pré-aprovado disponível {D.brl(ctx.get('credito_disponivel', 0))}, a partir de 1,49% a.m., parcelas de 6 a 48x.
@@ -89,7 +117,8 @@ CONTATO DE CONFIANÇA: {ctx.get("contato_confianca") or "não cadastrado (sugira
 
 SISTEMA = """Você é a Lia, assistente do Superapp, um banco digital fictício usado em um protótipo acadêmico (FIAP).
 Você é uma IA e não esconde isso, mas fala como uma pessoa da equipe: calorosa, direta, sem formalidade excessiva.
-Chame o cliente pelo primeiro nome de vez em quando (não em toda frase). Reconheça a situação antes de dar o número
+Chame o cliente pelo PRIMEIRO NOME DO CONTEXTO de vez em quando (não em toda frase) e nunca por outro nome.
+Não presuma gênero: evite "obrigado/obrigada", "o senhor/a senhora" e adjetivos de gênero. Reconheça a situação antes de dar o número
 ("Entendi, vamos ver isso juntos."). Português do Brasil, 2 a 4 frases, sem listas. Nunca invente dados: use apenas o CONTEXTO.
 Você EXECUTA ações, não apenas orienta. Quando o cliente pedir algo executável, devolva a ação correspondente.
 
@@ -112,7 +141,17 @@ Tipos de ação permitidos:
 - {"tipo": "escalar_humano", "motivo": "<motivo curto>"}
 
 Regras:
-- Se faltar um dado essencial para a ação (ex.: valor do Pix), pergunte e use "nenhuma".
+- Se faltar um dado essencial para a ação (ex.: valor do Pix), pergunte e use "nenhuma". Se o pedido já tem valor e
+  destinatário, NÃO pergunte de novo: devolva a ação.
+- Você só PREPARA a operação; quem conclui é o cliente, confirmando na tela. NUNCA diga "enviei", "paguei", "apliquei",
+  "contratei" ou "já foi": diga "Preparei ... é só confirmar na tela". NUNCA diga que não precisa de senha ou confirmação.
+- Pix para alguém que não está nos favoritos (ex.: "minha irmã" sem "Irmã" na lista): use "pix" com destinatario = o nome
+  citado; a tela abre para digitar a chave. Nunca troque por outro contato da lista.
+- Comprovante: nunca pergunte valor ou destinatário. Use "comprovante" com o que o cliente citou (nome ou valor) ou, se
+  ele não citou nada, busca "Pix" (abre o último Pix).
+- Se o cliente mudar de assunto, abandone o pedido anterior e não volte a ele.
+- A mensagem pode ter erros de digitação ("lus" = luz, "comprovanti" = comprovante): interprete pelo sentido.
+- Contas por apelido: "luz"/"energia" = Enel; "internet" = Vivo; "água" = Sabesp.
 - Investir sem dizer o produto: apresente em uma frase as opções do contexto (nome, rentabilidade, liquidez) e pergunte
   qual; se disser "o mais seguro/líquido", escolha o CDB. Com produto e valor, use "aplicar" — a pessoa confirma na tela.
 - Empréstimo: mostre o pré-aprovado disponível; com valor (e parcelas, ou 12 por padrão) use "contratar_credito".
@@ -125,7 +164,7 @@ Regras:
   (sugira bloquear o cartão / limitar Pix) e use "escalar_humano" com motivo "segurança".
 - Perguntas sobre saldo, fatura, contas, gastos e investimentos: responda com os números do contexto.
 - Não fale de temas fora do banco; redirecione com gentileza.
-- Saudação ("oi", "bom dia"): responda como pessoa ("Oi, Ana! Em que posso te ajudar?"), sem listar o que você faz.
+- Saudação ("oi", "bom dia"): responda como pessoa ("Oi, <primeiro nome do contexto>! Em que posso te ajudar?"), sem listar o que você faz.
   Só liste suas funções se o cliente perguntar o que você faz ou se já não entendeu duas vezes.
 - O texto pode vir de reconhecimento de voz, com palavras trocadas ("pineiro" por "piscineiro", "15 e 90" por R$ 15,90):
   interprete pelo contexto e pelos nomes do CONTEXTO antes de dizer que não entendeu.
@@ -162,7 +201,17 @@ def _chamar_api(mensagem: str, historico: list[dict], ctx: dict) -> dict | None:
         return None
 
 
+def _contato_citado(nome: str, m: str) -> bool:
+    """'Piscineiro (Seu Carlos)' é citado por "piscineiro" ou por "seu carlos"; "Irmã" por "irma"."""
+    n = _norm(nome)
+    partes = [n.split(" (")[0].split(" ")[0]] + [x.strip() for x in re.findall(r"\(([^)]+)\)", n)]
+    return any(p and re.search(rf"\b{re.escape(p)}\b", m) for p in partes)
+
+
 def _numero(texto: str) -> float | None:
+    me = re.search(r"\b(\d+)\s*(?:reais\s*)?e\s*(\d{1,2})\b(?!\s*(x|vezes|parcelas))", texto)  # "15 e 90" = 15,90
+    if me:
+        return float(f"{me.group(1)}.{me.group(2).ljust(2, '0')}")
     t = texto.replace(".", "").replace(",", ".")
     m = re.search(r"(\d+(?:\.\d{1,2})?)\s*(mil)?", t)
     if not m:
@@ -178,14 +227,14 @@ def _regras(mensagem: str, ctx: dict) -> dict:
     m = _norm(mensagem)
     p = ctx["persona"]
 
-    if re.search(r"\b(saldo|quanto (eu )?tenho|quanto tem na conta)\b", m):
+    if re.search(r"\b(saldo|quanto (eu )?tenho|quanto tem na conta)\b", m) and not re.search(r"invest|aplicad|carteira|rend", m):
         return {"resposta": f"Seu saldo disponível é {D.brl(ctx['saldo'])}.", "acao": {"tipo": "nenhuma"}}
 
     if "comprovante" in m or "recibo" in m:
         valor = _numero(m)
         quem = None
         for c in ctx["contatos"]:
-            if _norm(c["nome"].split(" ")[0]) in m:
+            if _contato_citado(c["nome"], m):
                 quem = c["nome"].split(" (")[0]
         if not quem:
             # qualquer palavra da mensagem que apareça nas descrições do extrato (ex.: Vivo, Enel, iFood)
@@ -198,7 +247,7 @@ def _regras(mensagem: str, ctx: dict) -> dict:
                         break
                 if quem:
                     break
-        busca = quem or (f"{valor:.2f}".replace(".", ",") if valor else "")
+        busca = quem or (f"{valor:.2f}".replace(".", ",") if valor else "") or ("Pix" if "pix" in m else "")
         return {"resposta": "Abri seus comprovantes" + (f" filtrados por {busca}" if busca else "") + ". É só tocar em Baixar.",
                 "acao": {"tipo": "comprovante", "busca": busca}}
 
@@ -206,13 +255,17 @@ def _regras(mensagem: str, ctx: dict) -> dict:
         valor = _numero(m)
         dest = None
         for c in ctx["contatos"]:
-            primeiro = _norm(c["nome"].split(" ")[0])
-            if primeiro in m:
+            if _contato_citado(c["nome"], m):
                 dest = c["nome"]
                 break
         if valor and dest:
             return {"resposta": f"Preparei um Pix de {D.brl(valor)} para {dest}. Confira e confirme.",
                     "acao": {"tipo": "pix", "valor": valor, "destinatario": dest}}
+        mq = re.search(r"\b(?:pra|pro|para)\s+(?:a |o |minha |meu )?([a-z][a-z ]{1,25}?)(?:\s+\d|$)", m)
+        if valor and mq and mq.group(1).strip() not in ("mim", "voce", "vc"):
+            nome_citado = mq.group(1).strip().title()
+            return {"resposta": f"Não achei {nome_citado} nos seus favoritos. Abri o Pix de {D.brl(valor)}: é só informar a chave e confirmar.",
+                    "acao": {"tipo": "pix", "valor": valor, "destinatario": nome_citado}}
         if valor:
             return {"resposta": f"Pix de {D.brl(valor)} — para quem? Seus favoritos: "
                     + ", ".join(c["nome"].split(" (")[0] for c in ctx["contatos"]) + ".",
@@ -220,8 +273,10 @@ def _regras(mensagem: str, ctx: dict) -> dict:
         return {"resposta": "Claro! Me diga o valor e para quem (ex.: \"manda 50 pra Ana\").", "acao": {"tipo": "nenhuma"}}
 
     if "fatura" in m or ("cartao" in m and ("quanto" in m or "gast" in m)):
-        return {"resposta": f"Sua fatura atual está em {D.brl(p['fatura_atual'])} e vence em "
-                f"{D.data_br(p['fatura_vencimento'])}. Limite disponível: {D.brl(p['limite_cartao'] - p['fatura_atual'])}.",
+        if _fatura(ctx) == 0:
+            return {"resposta": "Sua fatura deste mês já está paga. Abri o cartão para você ver as compras.", "acao": {"tipo": "ver_fatura"}}
+        return {"resposta": f"Sua fatura atual está em {D.brl(_fatura(ctx))} e vence em "
+                f"{D.data_br(p['fatura_vencimento'])}. Limite disponível: {D.brl(p['limite_cartao'] - _fatura(ctx))}.",
                 "acao": {"tipo": "ver_fatura"}}
 
     if "bloque" in m and "cartao" in m:
@@ -232,7 +287,7 @@ def _regras(mensagem: str, ctx: dict) -> dict:
 
     if "limite" in m:
         return {"resposta": f"Seu limite total é {D.brl(p['limite_cartao'])}; disponível agora: "
-                f"{D.brl(p['limite_cartao'] - p['fatura_atual'])}.", "acao": {"tipo": "nenhuma"}}
+                f"{D.brl(p['limite_cartao'] - _fatura(ctx))}.", "acao": {"tipo": "nenhuma"}}
 
     mb = re.search(r"(\d[\d .]{30,60}\d)", mensagem)
     if mb and ("boleto" in m or "codigo" in m or "barras" in m or len(re.sub(r"\D", "", mb.group(1))) >= 44):
@@ -243,6 +298,12 @@ def _regras(mensagem: str, ctx: dict) -> dict:
     if re.search(r"\b(paga|pagar|pague|quita|quitar)\b", m):
         pend = [c for c in ctx["contas"] if c["status"] != "paga"]
         alvo = next((c for c in pend if _norm(c["descricao"].split(" ")[0]) in m), None)
+        if not alvo:
+            for apelido, chave in SINONIMOS_CONTA.items():
+                if re.search(rf"\b{apelido}\b", m):
+                    alvo = next((c for c in pend if chave in _norm(c["descricao"])), None)
+                    if alvo:
+                        break
         if not alvo and "vencid" in m:
             alvo = next((c for c in pend if c["status"] == "vencida"), None)
         if alvo:
@@ -301,7 +362,7 @@ def _regras(mensagem: str, ctx: dict) -> dict:
             opcoes = "; ".join(f"{i['produto']} ({i['rent_12m']:.1%} a.a., liquidez {i['liquidez']})" for i in invs)
             return {"resposta": f"Suas opções: {opcoes}. Me diga o produto e o valor (ex.: \"aplica 500 no CDB\").",
                     "acao": {"tipo": "nenhuma"}}
-        return {"resposta": f"Seu patrimônio investido é {D.brl(p['patrimonio_inv'])}. Abri a tela de investimentos.",
+        return {"resposta": f"Hoje você tem {D.brl(_investido(ctx))} investidos. Abri a tela de investimentos.",
                 "acao": {"tipo": "ver_investimentos"}}
 
     if "virtual" in m and "cart" in m:
@@ -329,6 +390,7 @@ def _regras(mensagem: str, ctx: dict) -> dict:
 
 def responder(mensagem: str, historico: list[dict], ctx: dict) -> dict:
     """Retorna dict com: resposta, acao, fonte, frustrado, seguranca, escalar."""
+    mensagem = corrigir_digitacao(mensagem)
     frustrado, seguranca = detectar_sinais(mensagem)
     fonte = "regras"
     obj = None
@@ -360,8 +422,28 @@ def responder(mensagem: str, historico: list[dict], ctx: dict) -> dict:
             obj["resposta"] = (f"Entendi, {ctx['persona']['primeiro_nome']}, e desculpa por não ter resolvido. Vou te passar para o Rafael, "
                                "da nossa equipe. Ele já está vendo nossa conversa, então você não precisa explicar de novo.")
 
+    _coerencia_acao(obj)
     obj.update({"fonte": fonte, "frustrado": frustrado, "seguranca": seguranca, "escalar": escalar})
     return obj
+
+
+PREPARA = {"pix", "pagar_conta", "pagar_boleto", "aplicar", "resgatar", "contratar_credito"}
+JA_FEZ = re.compile(r"\b(j[aá] )?(enviei|mandei|transferi|paguei|apliquei|resgatei|contratei|foi enviado|foi pago|est[aá] feito)\b", re.I)
+SEM_SENHA = re.compile(r"[,;]?\s*[^.!?,;]*\bn[aã]o (precisa|é preciso|vai precisar)[^.!?]*(senha|confirma)[^.!?]*", re.I)
+
+
+def _coerencia_acao(obj: dict) -> None:
+    """A Lia prepara; quem conclui é o cliente na tela. O texto não pode dizer que já fez, nem que dispensa confirmação."""
+    tipo = obj.get("acao", {}).get("tipo")
+    if tipo not in PREPARA:
+        return
+    txt = SEM_SENHA.sub("", obj.get("resposta", "")).strip()
+    txt = JA_FEZ.sub("preparei", txt).strip()
+    if txt and txt[-1] not in ".!?":
+        txt += "."
+    if not re.search(r"confirm", txt, re.I):
+        txt = (txt + " Abri a tela com tudo preenchido: é só conferir e confirmar.").strip()
+    obj["resposta"] = txt[:1].upper() + txt[1:]
 
 
 # ------------------------------------------------------------------ Lia por voz: entender o comando
