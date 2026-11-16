@@ -1,0 +1,68 @@
+name: Manter app da FIAP acordado
+
+on:
+  schedule:
+    # 3x por dia (UTC): 06:17, 14:17 e 22:17 = 03:17, 11:17 e 19:17 em Brasília
+    - cron: "17 6,14,22 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  actions: write   # só para o keepalive do agendamento (60 dias)
+  contents: read
+
+concurrency:
+  group: manter-acordado
+  cancel-in-progress: false
+
+jobs:
+  acordar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      APP_URL: https://superapp-fiap.streamlit.app
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar Playwright
+        run: |
+          pip install playwright==1.48.0
+          python -m playwright install --with-deps chromium
+
+      - name: Abrir o app (e acordar se estiver dormindo)
+        shell: python
+        run: |
+          import os, sys
+          from playwright.sync_api import sync_playwright
+
+          url = os.environ["APP_URL"]
+          with sync_playwright() as p:
+              browser = p.chromium.launch()
+              page = browser.new_page()
+              page.goto(url, wait_until="domcontentloaded", timeout=90_000)
+              page.wait_for_timeout(15_000)
+
+              botao = page.get_by_role("button", name="Yes, get this app back up!")
+              if botao.count() > 0:
+                  print("App estava DORMINDO - clicando para acordar.")
+                  botao.first.click()
+                  page.wait_for_timeout(90_000)
+              else:
+                  print("App estava acordado.")
+
+              html = page.content()
+              browser.close()
+
+          if "Yes, get this app back up!" in html or "gone to sleep" in html:
+              print("ERRO: o app continua dormindo depois da tentativa.")
+              sys.exit(1)
+          print("OK: app no ar.")
+
+  # O GitHub desliga workflows agendados de repositórios públicos sem atividade
+  # por 60 dias; este job mantém o agendamento ligado sem fazer commits.
+  manter-agendamento:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: liskin/gh-workflow-keepalive@v1
